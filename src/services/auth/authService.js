@@ -8,13 +8,13 @@ export function getRedirectPathForUser(user) {
 
   switch (user.role) {
     case 'patient':
-      return '/login'; // Dashboards not implemented in this phase
+      return '/patient/dashboard';
 
     case 'admin':
-      return '/login'; // Dashboards not implemented in this phase
+      return '/admin/dashboard';
 
     case 'doctor':
-      return '/login';
+      return '/doctor/dashboard';
 
     default:
       return '/login';

@@ -6,6 +6,7 @@ import PatientRegisterPage from './pages/PatientRegisterPage';
 import DoctorRegisterPage from './pages/DoctorRegisterPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
+import DashboardPage from './pages/DashboardPage';
 import Toast from './components/auth/Toast';
 import './styles/auth.css';
 
@@ -40,6 +41,9 @@ export default function App() {
         <Route path="/register/doctor" element={<DoctorRegisterPage onToast={addToast} />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage onToast={addToast} />} />
         <Route path="/reset-password" element={<ResetPasswordPage onToast={addToast} />} />
+        <Route path="/patient/dashboard" element={<DashboardPage role="patient" />} />
+        <Route path="/doctor/dashboard" element={<DashboardPage role="doctor" />} />
+        <Route path="/admin/dashboard" element={<DashboardPage role="admin" />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </BrowserRouter>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Mail, ShieldAlert, ArrowRight } from 'lucide-react';
 import RoleSelector from './RoleSelector';
 import AuthInput from './AuthInput';
@@ -9,9 +9,10 @@ import AuthError from './AuthError';
 import AuthSuccess from './AuthSuccess';
 import TrustIndicators from './TrustIndicators';
 import AuthBranding from './AuthBranding';
-import { loginUser } from '../../services/auth/authService';
+import { getRedirectPathForUser, loginUser, logoutUser } from '../../services/auth/authService';
 
 export default function LoginForm({ onToast }) {
+  const navigate = useNavigate();
   const [role, setRole] = useState('patient');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -63,6 +64,7 @@ export default function LoginForm({ onToast }) {
       const roleCapitalized = user.role.charAt(0).toUpperCase() + user.role.slice(1);
 
       if (user.role === 'doctor' && result.doctorStatus === 'pending') {
+        await logoutUser();
         setGeneralError('Your doctor account is pending admin approval.');
         if (onToast) {
           onToast({
@@ -72,6 +74,7 @@ export default function LoginForm({ onToast }) {
           });
         }
       } else if (user.role === 'doctor' && result.doctorStatus === 'rejected') {
+        await logoutUser();
         setGeneralError('Your doctor account has not been approved.');
         if (onToast) {
           onToast({
@@ -81,7 +84,7 @@ export default function LoginForm({ onToast }) {
           });
         }
       } else {
-        setSuccessMessage(`Welcome back, ${user.full_name}! Authenticated successfully as ${roleCapitalized}.`);
+        setSuccessMessage(`Welcome back, ${user.full_name}!`);
         if (onToast) {
           onToast({
             type: 'success',
@@ -89,6 +92,7 @@ export default function LoginForm({ onToast }) {
             message: `Authenticated as ${roleCapitalized} (${user.email}).`,
           });
         }
+        navigate(getRedirectPathForUser(user), { replace: true });
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Invalid email or password.';
