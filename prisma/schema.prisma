@@ -23,6 +23,7 @@ model User {
   updated_at    DateTime       @updatedAt
 
   doctor_profile DoctorProfile?
+  appointments   Appointment[]
 
   @@index([role])
   @@index([email])
@@ -42,9 +43,27 @@ model DoctorProfile {
   updated_at          DateTime @updatedAt
 
   user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  appointments Appointment[]
 
   @@index([user_id])
   @@index([status])
   @@index([registration_number])
   @@map("doctor_profiles")
+}
+
+model Appointment {
+  id                String   @id @default(uuid())
+  patient_id        String
+  doctor_profile_id String
+  appointment_at    DateTime
+  reason            String?
+  status            String   @default("pending")
+  created_at        DateTime @default(now())
+
+  patient User @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  doctor  DoctorProfile @relation(fields: [doctor_profile_id], references: [id], onDelete: Cascade)
+
+  @@index([patient_id, appointment_at])
+  @@index([doctor_profile_id, appointment_at])
+  @@map("appointments")
 }

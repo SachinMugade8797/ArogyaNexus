@@ -7,6 +7,7 @@ import DoctorRegisterPage from './pages/DoctorRegisterPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import DashboardPage from './pages/DashboardPage';
+import { DoctorDiscoveryPage, PublicDoctorProfilePage, PublicHomePage } from './pages/PublicPages';
 import Toast from './components/auth/Toast';
 import './styles/auth.css';
 
@@ -34,7 +35,9 @@ export default function App() {
       <Toast toasts={toasts} onRemove={removeToast} />
 
       <Routes>
-        <Route path="/" element={<Navigate to="/login" replace />} />
+        <Route path="/" element={<PublicHomePage />} />
+        <Route path="/doctors" element={<DoctorDiscoveryPage />} />
+        <Route path="/doctors/:doctorId" element={<PublicDoctorProfilePage />} />
         <Route path="/login" element={<LoginPage onToast={addToast} />} />
         <Route path="/register" element={<RegisterSelectPage onToast={addToast} />} />
         <Route path="/register/patient" element={<PatientRegisterPage onToast={addToast} />} />
@@ -44,7 +47,7 @@ export default function App() {
         <Route path="/patient/dashboard" element={<DashboardPage role="patient" />} />
         <Route path="/doctor/dashboard" element={<DashboardPage role="doctor" />} />
         <Route path="/admin/dashboard" element={<DashboardPage role="admin" />} />
-        <Route path="*" element={<Navigate to="/login" replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   );
