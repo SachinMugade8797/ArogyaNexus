@@ -6,7 +6,6 @@ import AuthBranding from '../components/auth/AuthBranding';
 import AuthInput from '../components/auth/AuthInput';
 import AuthButton from '../components/auth/AuthButton';
 import AuthError from '../components/auth/AuthError';
-import AuthSuccess from '../components/auth/AuthSuccess';
 import TrustIndicators from '../components/auth/TrustIndicators';
 
 export default function ForgotPasswordPage({ onToast }) {

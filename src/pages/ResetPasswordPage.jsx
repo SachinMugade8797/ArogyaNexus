@@ -7,7 +7,6 @@ import PasswordInput from '../components/auth/PasswordInput';
 import PasswordStrength from '../components/auth/PasswordStrength';
 import AuthButton from '../components/auth/AuthButton';
 import AuthError from '../components/auth/AuthError';
-import AuthSuccess from '../components/auth/AuthSuccess';
 import TrustIndicators from '../components/auth/TrustIndicators';
 
 export default function ResetPasswordPage({ onToast }) {
@@ -19,7 +18,6 @@ export default function ResetPasswordPage({ onToast }) {
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [generalError, setGeneralError] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
   const [completed, setCompleted] = useState(false);
 
   const handleChange = (e) => {

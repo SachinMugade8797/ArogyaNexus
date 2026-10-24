@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { User, Mail, Phone, Lock, ArrowRight } from 'lucide-react';
+import { User, Mail, Phone, ArrowRight } from 'lucide-react';
 import AuthLayout from '../components/auth/AuthLayout';
 import AuthBranding from '../components/auth/AuthBranding';
 import AuthInput from '../components/auth/AuthInput';
@@ -10,6 +10,7 @@ import AuthButton from '../components/auth/AuthButton';
 import AuthError from '../components/auth/AuthError';
 import AuthSuccess from '../components/auth/AuthSuccess';
 import TrustIndicators from '../components/auth/TrustIndicators';
+import { registerPatient } from '../services/auth/authService';
 
 export default function PatientRegisterPage({ onToast }) {
   const [formData, setFormData] = useState({
@@ -67,7 +68,7 @@ export default function PatientRegisterPage({ onToast }) {
     return Object.keys(errs).length === 0;
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setGeneralError('');
     setSuccessMessage('');
@@ -78,9 +79,15 @@ export default function PatientRegisterPage({ onToast }) {
 
     setLoading(true);
 
-    // Mock API registration
-    setTimeout(() => {
-      setLoading(false);
+    try {
+      await registerPatient({
+        fullName: formData.fullName,
+        email: formData.email,
+        phoneNumber: formData.phoneNumber,
+        password: formData.password,
+        confirmPassword: formData.confirmPassword,
+      });
+
       setSuccessMessage(
         `Welcome to MedNexus, ${formData.fullName}! Your patient account has been created. You can now sign in.`
       );
@@ -88,10 +95,22 @@ export default function PatientRegisterPage({ onToast }) {
         onToast({
           type: 'success',
           title: 'Account Created',
-          message: `Patient account for ${formData.email} registered successfully.`
+          message: `Patient account for ${formData.email} registered successfully.`,
         });
       }
-    }, 1400);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Registration failed.';
+      setGeneralError(msg);
+      if (onToast) {
+        onToast({
+          type: 'error',
+          title: 'Registration Error',
+          message: msg,
+        });
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

@@ -9,6 +9,7 @@ import AuthError from './AuthError';
 import AuthSuccess from './AuthSuccess';
 import TrustIndicators from './TrustIndicators';
 import AuthBranding from './AuthBranding';
+import { loginUser } from '../../services/auth/authService';
 
 export default function LoginForm({ onToast }) {
   const [role, setRole] = useState('patient');
@@ -45,7 +46,7 @@ export default function LoginForm({ onToast }) {
     return Object.keys(errs).length === 0;
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setGeneralError('');
     setSuccessMessage('');
@@ -56,20 +57,52 @@ export default function LoginForm({ onToast }) {
 
     setLoading(true);
 
-    // Mock authentication interaction
-    setTimeout(() => {
-      setLoading(false);
-      const roleCapitalized = role.charAt(0).toUpperCase() + role.slice(1);
-      
-      setSuccessMessage(`Welcome back! Authenticated successfully as ${roleCapitalized}.`);
+    try {
+      const result = await loginUser({ email, password });
+      const user = result.user;
+      const roleCapitalized = user.role.charAt(0).toUpperCase() + user.role.slice(1);
+
+      if (user.role === 'doctor' && result.doctorStatus === 'pending') {
+        setGeneralError('Your doctor account is pending admin approval.');
+        if (onToast) {
+          onToast({
+            type: 'info',
+            title: 'Account Pending Approval',
+            message: 'Your doctor account is awaiting administrator verification.',
+          });
+        }
+      } else if (user.role === 'doctor' && result.doctorStatus === 'rejected') {
+        setGeneralError('Your doctor account has not been approved.');
+        if (onToast) {
+          onToast({
+            type: 'error',
+            title: 'Account Not Approved',
+            message: 'Your doctor application could not be verified.',
+          });
+        }
+      } else {
+        setSuccessMessage(`Welcome back, ${user.full_name}! Authenticated successfully as ${roleCapitalized}.`);
+        if (onToast) {
+          onToast({
+            type: 'success',
+            title: 'Sign In Successful',
+            message: `Authenticated as ${roleCapitalized} (${user.email}).`,
+          });
+        }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Invalid email or password.';
+      setGeneralError(msg);
       if (onToast) {
         onToast({
-          type: 'success',
-          title: 'Sign In Successful',
-          message: `Logged in as ${roleCapitalized} (${email}). Demo session established.`
+          type: 'error',
+          title: 'Sign In Failed',
+          message: msg,
         });
       }
-    }, 1200);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

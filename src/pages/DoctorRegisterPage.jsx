@@ -10,7 +10,6 @@ import {
   MapPin,
   CreditCard,
   ShieldCheck,
-  ArrowRight,
   Info
 } from 'lucide-react';
 import AuthLayout from '../components/auth/AuthLayout';
@@ -22,6 +21,7 @@ import AuthButton from '../components/auth/AuthButton';
 import AuthError from '../components/auth/AuthError';
 import AuthSuccess from '../components/auth/AuthSuccess';
 import TrustIndicators from '../components/auth/TrustIndicators';
+import { registerDoctor } from '../services/auth/authService';
 
 const MEDICAL_SPECIALTIES = [
   'General Medicine',
@@ -116,7 +116,7 @@ export default function DoctorRegisterPage({ onToast }) {
     return Object.keys(errs).length === 0;
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setGeneralError('');
     setSuccessMessage('');
@@ -127,9 +127,20 @@ export default function DoctorRegisterPage({ onToast }) {
 
     setLoading(true);
 
-    // Mock API registration
-    setTimeout(() => {
-      setLoading(false);
+    try {
+      await registerDoctor({
+        fullName: formData.fullName,
+        email: formData.email,
+        phoneNumber: formData.phoneNumber,
+        medicalSpeciality: formData.medicalSpeciality,
+        registrationNumber: formData.registrationNumber,
+        clinicName: formData.clinicName,
+        clinicAddress: formData.clinicAddress,
+        consultationFee: formData.consultationFee,
+        password: formData.password,
+        confirmPassword: formData.confirmPassword,
+      });
+
       setSuccessMessage(
         `Registration submitted for Dr. ${formData.fullName}! Your credentials have been queued for administrative verification.`
       );
@@ -137,10 +148,22 @@ export default function DoctorRegisterPage({ onToast }) {
         onToast({
           type: 'success',
           title: 'Doctor Application Received',
-          message: `Application for License #${formData.registrationNumber} submitted successfully.`
+          message: `Application for License #${formData.registrationNumber} submitted successfully.`,
         });
       }
-    }, 1500);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Registration failed.';
+      setGeneralError(msg);
+      if (onToast) {
+        onToast({
+          type: 'error',
+          title: 'Registration Error',
+          message: msg,
+        });
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

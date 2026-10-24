@@ -1,0 +1,50 @@
+// ==============================================================================
+// AROGYANEXUS — Prisma Schema for Local PostgreSQL Database
+// Tables: users, doctor_profiles
+// ==============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String         @id @default(uuid())
+  full_name     String
+  email         String         @unique
+  password_hash String
+  phone         String?
+  role          String         @default("patient") // Allowed: 'patient' | 'doctor' | 'admin'
+  created_at    DateTime       @default(now())
+  updated_at    DateTime       @updatedAt
+
+  doctor_profile DoctorProfile?
+
+  @@index([role])
+  @@index([email])
+  @@map("users")
+}
+
+model DoctorProfile {
+  id                  String   @id @default(uuid())
+  user_id             String   @unique
+  speciality          String
+  registration_number String   @unique
+  clinic_name         String
+  clinic_address      String
+  consultation_fee    Decimal  @db.Decimal(10, 2)
+  status              String   @default("pending") // Allowed: 'pending' | 'approved' | 'rejected'
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([status])
+  @@index([registration_number])
+  @@map("doctor_profiles")
+}

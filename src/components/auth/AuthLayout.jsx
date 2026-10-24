@@ -7,7 +7,7 @@ import HealthcareIllustration from './HealthcareIllustration';
 export default function AuthLayout({
   children,
   split = false,
-  pageTitle = 'Authentication',
+  _pageTitle = 'Authentication',
   brandSubtitle = 'Healthcare, connected around you.',
   brandDescription = 'Connect with trusted healthcare professionals, manage appointments, and keep your healthcare journey organized in one place.'
 }) {
