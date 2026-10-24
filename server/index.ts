@@ -7,6 +7,7 @@ import { registerDoctorService } from '../services/auth/register-doctor';
 import { loginService } from '../services/auth/login';
 import { logoutService } from '../services/auth/logout';
 import { createSession, getSession, SESSION_COOKIE_NAME } from '../lib/auth/session';
+import { prisma } from '../lib/db/prisma';
 
 dotenv.config();
 
@@ -96,6 +97,58 @@ app.get('/api/auth/me', (req: Request, res: Response) => {
     success: true,
     user: session.user,
   });
+});
+
+// Admin-only doctor application review
+app.get('/api/admin/doctor-applications', async (req: Request, res: Response) => {
+  const session = getSession(req.cookies[SESSION_COOKIE_NAME]);
+  if (!session || session.user.role !== 'admin') {
+    res.status(session ? 403 : 401).json({ success: false, error: 'Administrator access required.' });
+    return;
+  }
+
+  const status = typeof req.query.status === 'string' ? req.query.status : undefined;
+  if (status && !['pending', 'approved', 'rejected'].includes(status)) {
+    res.status(400).json({ success: false, error: 'Invalid application status.' });
+    return;
+  }
+
+  try {
+    const applications = await prisma.doctorProfile.findMany({
+      where: status ? { status } : undefined,
+      include: { user: { select: { id: true, full_name: true, email: true, phone: true, created_at: true } } },
+      orderBy: { created_at: 'desc' },
+    });
+    res.status(200).json({ success: true, applications });
+  } catch (err) {
+    console.error('[Admin] Could not load doctor applications:', err);
+    res.status(500).json({ success: false, error: 'Could not load doctor applications.' });
+  }
+});
+
+app.patch('/api/admin/doctor-applications/:id', async (req: Request, res: Response) => {
+  const session = getSession(req.cookies[SESSION_COOKIE_NAME]);
+  if (!session || session.user.role !== 'admin') {
+    res.status(session ? 403 : 401).json({ success: false, error: 'Administrator access required.' });
+    return;
+  }
+
+  const { status } = req.body as { status?: string };
+  if (status !== 'approved' && status !== 'rejected') {
+    res.status(400).json({ success: false, error: 'Choose approved or rejected status.' });
+    return;
+  }
+
+  try {
+    const application = await prisma.doctorProfile.update({
+      where: { id: req.params.id },
+      data: { status },
+    });
+    res.status(200).json({ success: true, application });
+  } catch (err) {
+    console.error('[Admin] Could not update doctor application:', err);
+    res.status(404).json({ success: false, error: 'Doctor application was not found or could not be updated.' });
+  }
 });
 
 export { app };

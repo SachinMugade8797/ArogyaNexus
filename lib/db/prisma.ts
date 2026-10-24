@@ -274,6 +274,31 @@ const fallbackUser = {
 };
 
 const fallbackDoctorProfile = {
+  async findMany(args: { where?: { status?: string }; orderBy?: any; include?: any } = {}) {
+    const db = loadLocalDB();
+    const profiles = db.doctor_profiles
+      .filter((profile) => !args.where?.status || profile.status === args.where.status)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+    return profiles.map((profile) => {
+      const doctor = { ...profile };
+      if (args.include?.user) {
+        const user = db.users.find((entry) => entry.id === profile.user_id);
+        return { ...doctor, user: user ? { id: user.id, full_name: user.full_name, email: user.email, phone: user.phone, created_at: user.created_at } : null };
+      }
+      return doctor;
+    });
+  },
+
+  async update(args: { where: { id: string }; data: { status?: string } }) {
+    const db = loadLocalDB();
+    const profile = db.doctor_profiles.find((entry) => entry.id === args.where.id);
+    if (!profile) throw new Error('Doctor application not found.');
+    Object.assign(profile, args.data, { updated_at: new Date().toISOString() });
+    saveLocalDB(db);
+    return { ...profile };
+  },
+
   async findUnique(args: { where: { registration_number?: string; user_id?: string } }) {
     const db = loadLocalDB();
     const doc = db.doctor_profiles.find((dp) => {
@@ -398,6 +423,42 @@ export const prisma = {
   },
 
   doctorProfile: {
+    async findMany(args: any = {}) {
+      const running = await isPostgresRunning();
+      if (!running) {
+        logFallbackNotice();
+        return await fallbackDoctorProfile.findMany(args);
+      }
+      try {
+        return await rawPrisma.doctorProfile.findMany(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          logFallbackNotice();
+          return await fallbackDoctorProfile.findMany(args);
+        }
+        throw err;
+      }
+    },
+
+    async update(args: any) {
+      const running = await isPostgresRunning();
+      if (!running) {
+        logFallbackNotice();
+        return await fallbackDoctorProfile.update(args);
+      }
+      try {
+        return await rawPrisma.doctorProfile.update(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          logFallbackNotice();
+          return await fallbackDoctorProfile.update(args);
+        }
+        throw err;
+      }
+    },
+
     async findUnique(args: any) {
       const running = await isPostgresRunning();
       if (!running) {
