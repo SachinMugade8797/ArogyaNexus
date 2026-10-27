@@ -8,8 +8,8 @@ async function main() {
   console.log('[ArogyaNexus Seed] Starting local database seeding...');
 
   // 1. Seed Admin Account (Section 8)
-  const adminEmail = process.env.SEED_ADMIN_EMAIL || 'admin@mednexus.org';
-  const adminPassword = process.env.SEED_ADMIN_PASSWORD || 'AdminSecure2026!';
+  const adminEmail = process.env.SEED_ADMIN_EMAIL || 'a@gmail.com';
+  const adminPassword = process.env.SEED_ADMIN_PASSWORD || 'Pass@123';
   const adminHash = await bcrypt.hash(adminPassword, BCRYPT_SALT_ROUNDS);
 
   const admin = await prisma.user.upsert({
@@ -31,8 +31,8 @@ async function main() {
   console.log(`[ArogyaNexus Seed] Seeded Admin: ${admin.email} (Role: ${admin.role})`);
 
   // 2. Seed Demo Approved Doctor Account (Section 18)
-  const doctorEmail = 'doctor.approved@mednexus.org';
-  const doctorHash = await bcrypt.hash('DoctorSecure2026!', BCRYPT_SALT_ROUNDS);
+  const doctorEmail = 'd@gmail.com';
+  const doctorHash = await bcrypt.hash('Pass@123', BCRYPT_SALT_ROUNDS);
 
   const doctorUser = await prisma.user.upsert({
     where: { email: doctorEmail },
@@ -69,8 +69,8 @@ async function main() {
   console.log(`[ArogyaNexus Seed] Seeded Approved Doctor: ${doctorUser.email}`);
 
   // 3. Seed Demo Patient Account (Section 18)
-  const patientEmail = 'patient@mednexus.org';
-  const patientHash = await bcrypt.hash('PatientSecure2026!', BCRYPT_SALT_ROUNDS);
+  const patientEmail = 'u@gmail.com';
+  const patientHash = await bcrypt.hash('Pass@123', BCRYPT_SALT_ROUNDS);
 
   const patient = await prisma.user.upsert({
     where: { email: patientEmail },
