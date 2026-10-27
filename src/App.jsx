@@ -11,6 +11,9 @@ import { DoctorDiscoveryPage, PublicDoctorProfilePage, PublicHomePage } from './
 import Toast from './components/auth/Toast';
 import PatientDashboard from './pages/patient/Dashboard';
 import { ActiveProfileProvider } from './contexts/ActiveProfileContext';
+import DoctorDirectory from './pages/patient/DoctorDirectory';
+import DoctorProfile from './pages/patient/DoctorProfile';
+import BookAppointment from './pages/patient/BookAppointment';
 import './styles/auth.css';
 
 export default function App() {
@@ -58,5 +61,10 @@ export default function App() {
 function PatientProtectedRoute() {
   const fakeUser = { id: 'demo-patient', full_name: 'Rahul K.', role: 'patient' };
   if (fakeUser.role !== 'patient') return <Navigate to="/login" replace />;
-  return <ActiveProfileProvider><PatientDashboard user={fakeUser} /></ActiveProfileProvider>;
+  return <ActiveProfileProvider><Routes>
+    <Route path="doctors" element={<DoctorDirectory />} />
+    <Route path="doctors/:doctorId" element={<DoctorProfile />} />
+    <Route path="book-appointment/:doctorId" element={<BookAppointment />} />
+    <Route path="*" element={<PatientDashboard user={fakeUser} />} />
+  </Routes></ActiveProfileProvider>;
 }

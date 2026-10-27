@@ -1,7 +1,7 @@
 const profiles = {
   me: {
     profile: { id: 'me', name: 'Rahul K.', initials: 'RK', age: 32, relation: 'Self', completion: 78, allergies: ['Penicillin', 'Pollen'], vitals: { heartRate: '76 bpm', bloodPressure: '118/76 mmHg', bloodGlucose: '96 mg/dL' } },
-    actions: [{ id: 'consent', text: '2 pending consent access requests from Apollo Clinic', action: 'View requests' }],
+    actions: [{ id: 'consent', text: '2 pending consent access requests from Dr. Sarah Chen at Apollo Clinic', action: 'View requests' }],
     nextAppointment: { doctor: 'Dr. Anil Mehta', specialty: 'Cardiologist', at: '2026-10-28T10:30:00+05:30', status: 'Confirmed', clinic: 'Apollo Clinic', address: 'Indiranagar, Bengaluru' },
     medicinesToday: [{ name: 'Amlodipine', time: '8:00 AM', status: 'Taken' }, { name: 'Metformin', time: '2:00 PM', status: 'Due' }, { name: 'Multivitamin', time: '8:00 PM', status: 'Upcoming' }],
     recentVisits: [{ doctor: 'Dr. Sarah Chen', specialty: 'Follow-up Consultation', date: '2026-10-20T11:00:00+05:30', clinic: 'Apollo Clinic' }, { doctor: 'Dr. Rana Chen', specialty: 'Follow-up Cardiologist', date: '2026-10-12T09:30:00+05:30', clinic: 'City Care' }],

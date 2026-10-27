@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { AlertTriangle, ArrowDownToLine, ArrowRight, CalendarDays, Check, ChevronDown, Clock3, FileText, HeartPulse, MapPin, MoreHorizontal, Pill, ShieldCheck, Upload, Video, X } from 'lucide-react';
 import { Avatar, Button, Card, StatusChip } from '../ui';
 import { getConsentDaysRemaining } from '../../utils/consent';
+import { Link } from 'react-router-dom';
 
 function relativeDate(value) {
   if (!value) return 'Date to be confirmed';
@@ -15,7 +16,7 @@ function relativeDate(value) {
 
 export function ActionStrip({ actions }) {
   if (!actions.length) return null;
-  return <div className="patient-alert" role="status"><AlertTriangle size={19} /><p><strong>Alert:</strong> {actions[0].text}</p><Button variant="warning">{actions[0].action}</Button><button className="alert-dismiss" type="button" aria-label="Dismiss alert"><X size={17} /></button></div>;
+  return <div className="patient-alert" role="status"><AlertTriangle size={19} /><p><strong>Alert:</strong> {actions[0].text}</p><Link className="patient-button warning" to="/patient/consent">View requests</Link><button className="alert-dismiss" type="button" aria-label="Dismiss alert"><X size={17} /></button></div>;
 }
 
 export function NextAppointmentCard({ appointment, onRetry, state }) {
@@ -37,7 +38,7 @@ export function HealthSnapshot({ profile, onRetry, state }) {
 export function MedicineChecklist({ medicines, onRetry, state }) {
   const [checked, setChecked] = useState(() => medicines.map((medicine) => medicine.status === 'Taken'));
   const taken = checked.filter(Boolean).length;
-  return <Card title="Today’s Medicines" className="medicine-card" state={state || (medicines === undefined ? 'loading' : medicines.length ? 'ready' : 'empty')} emptyText="No medicines scheduled for today." onRetry={onRetry}><div className="medicine-progress"><span className="adherence-ring" style={{ '--progress': `${medicines.length ? (taken / medicines.length) * 100 : 0}%` }}><b>{medicines.length ? Math.round((taken / medicines.length) * 100) : 0}%</b></span><span><strong>{taken} of {medicines.length} taken</strong><small>Today’s adherence</small></span></div><div className="medicine-list">{medicines.map((medicine, index) => <label key={medicine.name}><input type="checkbox" checked={checked[index] || false} onChange={() => setChecked((old) => old.map((value, i) => i === index ? !value : value))} /><span className="medicine-check"><Check size={13} /></span><span>{medicine.name} <small>({medicine.time})</small></span><em className={checked[index] ? 'taken' : ''}>{checked[index] ? 'Taken' : medicine.status}</em></label>)}</div></Card>;
+  return <Card title="Today’s Medicines" className="medicine-card" state={state || (medicines === undefined ? 'loading' : medicines.length ? 'ready' : 'empty')} emptyText="No medicines scheduled for today." onRetry={onRetry}><div className="medicine-progress"><span className="adherence-ring" style={{ '--progress': `${medicines.length ? (taken / medicines.length) * 100 : 0}%` }}><b>{medicines.length ? Math.round((taken / medicines.length) * 100) : 0}%</b></span><span><strong>{taken} of {medicines.length} taken</strong><small>Today’s adherence</small></span></div><div className="medicine-list">{medicines.map((medicine, index) => <label key={medicine.name}><input type="checkbox" checked={checked[index] || false} onChange={() => setChecked((old) => old.map((value, i) => i === index ? !value : value))} /><span className="medicine-check"><Check size={13} /></span><span>{medicine.name} <small>({medicine.time})</small></span><em className={checked[index] ? 'taken' : ''}>{checked[index] ? 'Taken' : medicine.status === 'Taken' ? 'Due' : medicine.status}</em></label>)}</div></Card>;
 }
 
 export function RecentVisits({ visits, onRetry, state }) {
