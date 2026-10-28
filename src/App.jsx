@@ -26,6 +26,8 @@ const MedicinesPage = lazy(() => import('./pages/patient/Medicines'));
 const DocumentsPage = lazy(() => import('./pages/patient/Documents'));
 const CampsPage = lazy(() => import('./pages/patient/Camps'));
 const DoctorAppointments = lazy(() => import('./pages/doctor/Appointments'));
+const DoctorConsultationPlaceholder = lazy(() => import('./pages/doctor/Placeholders').then((module) => ({ default: module.ConsultationPlaceholder })));
+const DoctorRecordsPlaceholder = lazy(() => import('./pages/doctor/Placeholders').then((module) => ({ default: module.MedicalRecordsPlaceholder })));
 import './styles/auth.css';
 import './styles/app-errors.css';
 
@@ -65,6 +67,8 @@ export default function App() {
         <Route path="/patient/*" element={<PatientProtectedRoute />} />
         <Route path="/doctor/dashboard" element={<DashboardPage role="doctor" />} />
         <Route path="/doctor/appointments" element={<DoctorAppointments />} />
+        <Route path="/doctor/consult/:appointmentId" element={<DoctorConsultationPlaceholder />} />
+        <Route path="/doctor/records/:patientId" element={<DoctorRecordsPlaceholder />} />
         <Route path="/doctor/:section" element={<DoctorAppointments comingSoon />} />
         <Route path="/admin/dashboard" element={<DashboardPage role="admin" />} />
         <Route path="*" element={<NotFound />} />
