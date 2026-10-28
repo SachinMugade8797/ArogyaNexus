@@ -13,6 +13,28 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const PUBLIC_CITIES = ['Kolhapur', 'Pune', 'Mumbai', 'Bengaluru', 'Nashik', 'Sangli', 'Satara'];
+
+function toPublicDoctor(profile: any) {
+  const address = String(profile.clinic_address || '');
+  const city = PUBLIC_CITIES.find((name) => new RegExp(`\\b${name}\\b`, 'i').test(address)) || null;
+  const rawName = String(profile.user?.full_name || 'Doctor');
+  return {
+    id: profile.id,
+    name: /^dr\.?\s/i.test(rawName) ? rawName : `Dr. ${rawName}`,
+    speciality: profile.speciality,
+    clinic: profile.clinic_name,
+    clinicAddress: address,
+    city,
+    consultationFee: Number(profile.consultation_fee),
+    verificationStatus: 'verified',
+    qualification: null,
+    experienceYears: null,
+    rating: null,
+    reviewCount: 0,
+    availability: [],
+  };
+}
 
 // Middlewares
 app.use(express.json());
@@ -140,14 +162,117 @@ app.patch('/api/admin/doctor-applications/:id', async (req: Request, res: Respon
   }
 
   try {
+    const applicationId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const application = await prisma.doctorProfile.update({
-      where: { id: req.params.id },
+      where: { id: applicationId },
       data: { status },
     });
     res.status(200).json({ success: true, application });
   } catch (err) {
     console.error('[Admin] Could not update doctor application:', err);
     res.status(404).json({ success: false, error: 'Doctor application was not found or could not be updated.' });
+  }
+});
+
+// Public discovery DTOs intentionally expose approved profiles only.
+app.get('/api/public/doctors', async (req: Request, res: Response) => {
+  try {
+    const profiles = await prisma.doctorProfile.findMany({
+      where: { status: 'approved' },
+      select: {
+        id: true,
+        speciality: true,
+        clinic_name: true,
+        clinic_address: true,
+        consultation_fee: true,
+        status: true,
+        user: { select: { full_name: true } },
+      },
+      orderBy: { created_at: 'desc' },
+    });
+    const query = typeof req.query.q === 'string' ? req.query.q.trim().toLowerCase() : '';
+    const speciality = typeof req.query.speciality === 'string' ? req.query.speciality.trim().toLowerCase() : '';
+    const city = typeof req.query.city === 'string' ? req.query.city.trim().toLowerCase() : '';
+    const doctors = profiles
+      .map(toPublicDoctor)
+      .filter((doctor) => !city || doctor.city?.toLowerCase() === city)
+      .filter((doctor) => !speciality || doctor.speciality.toLowerCase() === speciality)
+      .filter((doctor) => !query || `${doctor.name} ${doctor.speciality} ${doctor.clinic} ${doctor.city || ''}`.toLowerCase().includes(query));
+    res.status(200).json({ success: true, doctors });
+  } catch (err) {
+    console.error('[Public] Could not load doctor directory:', err);
+    res.status(500).json({ success: false, error: 'Could not load the doctor directory.' });
+  }
+});
+
+app.get('/api/public/doctors/:id', async (req: Request, res: Response) => {
+  try {
+    const doctorId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const profiles = await prisma.doctorProfile.findMany({
+      where: { status: 'approved' },
+      select: {
+        id: true,
+        speciality: true,
+        clinic_name: true,
+        clinic_address: true,
+        consultation_fee: true,
+        status: true,
+        user: { select: { full_name: true } },
+      },
+    });
+    const profile = profiles.find((entry: any) => entry.id === doctorId);
+    if (!profile) {
+      res.status(404).json({ success: false, error: 'Verified doctor not found.' });
+      return;
+    }
+    res.status(200).json({ success: true, doctor: toPublicDoctor(profile) });
+  } catch (err) {
+    console.error('[Public] Could not load doctor profile:', err);
+    res.status(500).json({ success: false, error: 'Could not load the doctor profile.' });
+  }
+});
+
+// Appointment requests can only be created by an authenticated patient for an approved doctor.
+app.post('/api/appointments', async (req: Request, res: Response) => {
+  const session = getSession(req.cookies[SESSION_COOKIE_NAME]);
+  if (!session) {
+    res.status(401).json({ success: false, error: 'Please log in as a patient to request an appointment.' });
+    return;
+  }
+  if (session.user.role !== 'patient') {
+    res.status(403).json({ success: false, error: 'Only patient accounts can book appointments.' });
+    return;
+  }
+
+  const { doctorId, appointmentAt, reason } = req.body as { doctorId?: string; appointmentAt?: string; reason?: string };
+  const parsedDate = appointmentAt ? new Date(appointmentAt) : null;
+  if (!doctorId || !parsedDate || Number.isNaN(parsedDate.getTime()) || parsedDate.getTime() <= Date.now()) {
+    res.status(400).json({ success: false, error: 'Choose a valid future appointment date and time.' });
+    return;
+  }
+  if (reason !== undefined && (typeof reason !== 'string' || reason.length > 500)) {
+    res.status(400).json({ success: false, error: 'Appointment note must be 500 characters or fewer.' });
+    return;
+  }
+
+  try {
+    const doctor = await prisma.doctorProfile.findUnique({ where: { id: doctorId } });
+    if (!doctor || doctor.status !== 'approved') {
+      res.status(404).json({ success: false, error: 'Verified doctor not found.' });
+      return;
+    }
+    const appointment = await (prisma as any).appointment.create({
+      data: {
+        patient_id: session.user.id,
+        doctor_profile_id: doctor.id,
+        appointment_at: parsedDate,
+        reason: reason?.trim() || null,
+      },
+    });
+    res.status(201).json({ success: true, appointment: { id: appointment.id, appointmentAt: appointment.appointment_at, status: appointment.status } });
+  } catch (err) {
+    console.error('[Appointments] Could not create appointment request:', err);
+    res.status(500).json({ success: false, error: 'Could not create the appointment request.' });
   }
 });
 

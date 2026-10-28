@@ -92,13 +92,24 @@ interface LocalDB {
     created_at: string;
     updated_at: string;
   }>;
+  appointments: Array<{
+    id: string;
+    patient_id: string;
+    doctor_profile_id: string;
+    appointment_at: string;
+    reason: string | null;
+    status: string;
+    created_at: string;
+  }>;
 }
 
 function loadLocalDB(): LocalDB {
   if (fs.existsSync(LOCAL_DB_PATH)) {
     try {
       const data = fs.readFileSync(LOCAL_DB_PATH, 'utf-8');
-      return JSON.parse(data);
+      const db = JSON.parse(data) as LocalDB;
+      db.appointments ||= [];
+      return db;
     } catch {
       // Fall through to initial seed
     }
@@ -155,6 +166,7 @@ function loadLocalDB(): LocalDB {
         updated_at: new Date().toISOString(),
       },
     ],
+    appointments: [],
   };
 
   try {
@@ -204,7 +216,7 @@ function logFallbackNotice() {
 // Fallback Query Implementations
 // ----------------------------------------------------------------------------
 const fallbackUser = {
-  async findUnique(args: { where: { email?: string; id?: string }; include?: { doctor_profile?: boolean } }) {
+  async findUnique(args: { where: { email?: string; id?: string }; include?: { doctor_profile?: boolean }; select?: any }) {
     const db = loadLocalDB();
     const user = db.users.find((u) => {
       if (args.where.email) {
@@ -221,6 +233,10 @@ const fallbackUser = {
     if (args.include?.doctor_profile) {
       const doc = db.doctor_profiles.find((dp) => dp.user_id === user.id) || null;
       return { ...user, doctor_profile: doc };
+    }
+
+    if (args.select) {
+      return Object.fromEntries(Object.entries(args.select).filter(([, selected]) => selected === true).map(([key]) => [key, (user as any)[key]]));
     }
 
     return { ...user };
@@ -274,17 +290,23 @@ const fallbackUser = {
 };
 
 const fallbackDoctorProfile = {
-  async findMany(args: { where?: { status?: string }; orderBy?: any; include?: any } = {}) {
+  async findMany(args: { where?: { status?: string }; orderBy?: any; include?: any; select?: any } = {}) {
     const db = loadLocalDB();
     const profiles = db.doctor_profiles
       .filter((profile) => !args.where?.status || profile.status === args.where.status)
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
     return profiles.map((profile) => {
-      const doctor = { ...profile };
-      if (args.include?.user) {
+      const doctor = args.select
+        ? Object.fromEntries(Object.entries(args.select).filter(([, selected]) => selected === true).map(([key]) => [key, (profile as any)[key]]))
+        : { ...profile };
+      if (args.include?.user || args.select?.user) {
         const user = db.users.find((entry) => entry.id === profile.user_id);
-        return { ...doctor, user: user ? { id: user.id, full_name: user.full_name, email: user.email, phone: user.phone, created_at: user.created_at } : null };
+        const userSelect = args.select?.user?.select;
+        const safeUser = user ? (userSelect
+          ? Object.fromEntries(Object.entries(userSelect).filter(([, selected]) => selected === true).map(([key]) => [key, (user as any)[key]]))
+          : { id: user.id, full_name: user.full_name, email: user.email, phone: user.phone, created_at: user.created_at }) : null;
+        return { ...doctor, user: safeUser };
       }
       return doctor;
     });
@@ -299,7 +321,7 @@ const fallbackDoctorProfile = {
     return { ...profile };
   },
 
-  async findUnique(args: { where: { registration_number?: string; user_id?: string } }) {
+  async findUnique(args: { where: { id?: string; registration_number?: string; user_id?: string }; select?: any }) {
     const db = loadLocalDB();
     const doc = db.doctor_profiles.find((dp) => {
       if (args.where.registration_number) {
@@ -308,10 +330,15 @@ const fallbackDoctorProfile = {
       if (args.where.user_id) {
         return dp.user_id === args.where.user_id;
       }
+      if (args.where.id) {
+        return dp.id === args.where.id;
+      }
       return false;
     });
 
-    return doc ? { ...doc } : null;
+    if (!doc) return null;
+    if (args.select) return Object.fromEntries(Object.entries(args.select).filter(([, selected]) => selected === true).map(([key]) => [key, (doc as any)[key]]));
+    return { ...doc };
   },
 
   async create(args: { data: any }) {
@@ -359,6 +386,24 @@ const fallbackDoctorProfile = {
       saveLocalDB(db);
       return newDoc;
     }
+  },
+};
+
+const fallbackAppointment = {
+  async create(args: { data: { patient_id: string; doctor_profile_id: string; appointment_at: Date | string; reason?: string | null } }) {
+    const db = loadLocalDB();
+    const appointment = {
+      id: crypto.randomUUID(),
+      patient_id: args.data.patient_id,
+      doctor_profile_id: args.data.doctor_profile_id,
+      appointment_at: new Date(args.data.appointment_at).toISOString(),
+      reason: args.data.reason || null,
+      status: 'pending',
+      created_at: new Date().toISOString(),
+    };
+    db.appointments.push(appointment);
+    saveLocalDB(db);
+    return appointment;
   },
 };
 
@@ -508,6 +553,26 @@ export const prisma = {
           postgresAvailable = false;
           logFallbackNotice();
           return await fallbackDoctorProfile.upsert(args);
+        }
+        throw err;
+      }
+    },
+  },
+
+  appointment: {
+    async create(args: any) {
+      const running = await isPostgresRunning();
+      if (!running) {
+        logFallbackNotice();
+        return await fallbackAppointment.create(args);
+      }
+      try {
+        return await (rawPrisma as any).appointment.create(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          logFallbackNotice();
+          return await fallbackAppointment.create(args);
         }
         throw err;
       }

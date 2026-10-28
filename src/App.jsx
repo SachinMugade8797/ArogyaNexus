@@ -7,7 +7,13 @@ import DoctorRegisterPage from './pages/DoctorRegisterPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import DashboardPage from './pages/DashboardPage';
+import { DoctorDiscoveryPage, PublicDoctorProfilePage, PublicHomePage } from './pages/PublicPages';
 import Toast from './components/auth/Toast';
+import PatientDashboard from './pages/patient/Dashboard';
+import { ActiveProfileProvider } from './contexts/ActiveProfileContext';
+import DoctorDirectory from './pages/patient/DoctorDirectory';
+import DoctorProfile from './pages/patient/DoctorProfile';
+import BookAppointment from './pages/patient/BookAppointment';
 import './styles/auth.css';
 
 export default function App() {
@@ -34,18 +40,31 @@ export default function App() {
       <Toast toasts={toasts} onRemove={removeToast} />
 
       <Routes>
-        <Route path="/" element={<Navigate to="/login" replace />} />
+        <Route path="/" element={<PublicHomePage />} />
+        <Route path="/doctors" element={<DoctorDiscoveryPage />} />
+        <Route path="/doctors/:doctorId" element={<PublicDoctorProfilePage />} />
         <Route path="/login" element={<LoginPage onToast={addToast} />} />
         <Route path="/register" element={<RegisterSelectPage onToast={addToast} />} />
         <Route path="/register/patient" element={<PatientRegisterPage onToast={addToast} />} />
         <Route path="/register/doctor" element={<DoctorRegisterPage onToast={addToast} />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage onToast={addToast} />} />
         <Route path="/reset-password" element={<ResetPasswordPage onToast={addToast} />} />
-        <Route path="/patient/dashboard" element={<DashboardPage role="patient" />} />
+        <Route path="/patient/*" element={<PatientProtectedRoute />} />
         <Route path="/doctor/dashboard" element={<DashboardPage role="doctor" />} />
         <Route path="/admin/dashboard" element={<DashboardPage role="admin" />} />
-        <Route path="*" element={<Navigate to="/login" replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   );
+}
+
+function PatientProtectedRoute() {
+  const fakeUser = { id: 'demo-patient', full_name: 'Rahul K.', role: 'patient' };
+  if (fakeUser.role !== 'patient') return <Navigate to="/login" replace />;
+  return <ActiveProfileProvider><Routes>
+    <Route path="doctors" element={<DoctorDirectory />} />
+    <Route path="doctors/:doctorId" element={<DoctorProfile />} />
+    <Route path="book-appointment/:doctorId" element={<BookAppointment />} />
+    <Route path="*" element={<PatientDashboard user={fakeUser} />} />
+  </Routes></ActiveProfileProvider>;
 }
