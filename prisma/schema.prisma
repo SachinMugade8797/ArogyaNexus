@@ -24,6 +24,7 @@ model User {
 
   doctor_profile DoctorProfile?
   appointments   Appointment[]
+  profiles       Profile[]
 
   @@index([role])
   @@index([email])
@@ -44,6 +45,10 @@ model DoctorProfile {
 
   user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
   appointments Appointment[]
+  photo_url String?
+  verified Boolean @default(false)
+  clinic_lat Float?
+  clinic_lng Float?
 
   @@index([user_id])
   @@index([status])
@@ -54,16 +59,55 @@ model DoctorProfile {
 model Appointment {
   id                String   @id @default(uuid())
   patient_id        String
+  profile_id        String?
   doctor_profile_id String
   appointment_at    DateTime
   reason            String?
   status            String   @default("pending")
   created_at        DateTime @default(now())
+  ends_at           DateTime?
+  mode              String @default("IN_PERSON")
+  cancel_reason     String?
+  notes             String?
+  seed_key          String? @unique
 
   patient User @relation(fields: [patient_id], references: [id], onDelete: Cascade)
   doctor  DoctorProfile @relation(fields: [doctor_profile_id], references: [id], onDelete: Cascade)
+  profile Profile? @relation(fields: [profile_id], references: [id], onDelete: Cascade)
+  visit_record VisitRecord?
 
   @@index([patient_id, appointment_at])
   @@index([doctor_profile_id, appointment_at])
   @@map("appointments")
+}
+
+model Profile {
+  id String @id @default(uuid())
+  user_id String
+  name String
+  relation String @default("SELF")
+  seed_key String? @unique
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  appointments Appointment[]
+  access ProfileAccess[]
+  @@index([user_id])
+  @@map("profiles")
+}
+
+model ProfileAccess {
+  id String @id @default(uuid())
+  profile_id String
+  user_id String
+  profile Profile @relation(fields: [profile_id], references: [id], onDelete: Cascade)
+  @@unique([profile_id, user_id])
+  @@map("profile_access")
+}
+
+model VisitRecord {
+  id String @id @default(uuid())
+  appointment_id String @unique
+  prescription_file_key String?
+  report_file_key String?
+  appointment Appointment @relation(fields: [appointment_id], references: [id], onDelete: Cascade)
+  @@map("visit_records")
 }

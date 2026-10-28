@@ -14,6 +14,8 @@ import { ActiveProfileProvider } from './contexts/ActiveProfileContext';
 import DoctorDirectory from './pages/patient/DoctorDirectory';
 import DoctorProfile from './pages/patient/DoctorProfile';
 import BookAppointment from './pages/patient/BookAppointment';
+import PatientAppointments from './pages/patient/Appointments';
+import AppointmentCallPlaceholder from './pages/patient/AppointmentCallPlaceholder';
 import './styles/auth.css';
 
 export default function App() {
@@ -65,6 +67,9 @@ function PatientProtectedRoute() {
     <Route path="doctors" element={<DoctorDirectory />} />
     <Route path="doctors/:doctorId" element={<DoctorProfile />} />
     <Route path="book-appointment/:doctorId" element={<BookAppointment />} />
+    <Route path="appointments" element={<PatientAppointments />} />
+    <Route path="book/:doctorId" element={<BookAppointment />} />
+    <Route path="appointments/:id/call" element={<AppointmentCallPlaceholder />} />
     <Route path="*" element={<PatientDashboard user={fakeUser} />} />
   </Routes></ActiveProfileProvider>;
 }

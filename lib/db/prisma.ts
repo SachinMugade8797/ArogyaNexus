@@ -560,6 +560,9 @@ export const prisma = {
   },
 
   appointment: {
+    async findMany(args: any) { return await (rawPrisma as any).appointment.findMany(args); },
+    async findFirst(args: any) { return await (rawPrisma as any).appointment.findFirst(args); },
+    async update(args: any) { return await (rawPrisma as any).appointment.update(args); },
     async create(args: any) {
       const running = await isPostgresRunning();
       if (!running) {
@@ -577,6 +580,17 @@ export const prisma = {
         throw err;
       }
     },
+  },
+
+  profile: {
+    async findMany(args: any) { return await (rawPrisma as any).profile.findMany(args); },
+    async findFirst(args: any) { return await (rawPrisma as any).profile.findFirst(args); },
+  },
+  profileAccess: {
+    async findFirst(args: any) { return await (rawPrisma as any).profileAccess.findFirst(args); },
+  },
+  visitRecord: {
+    async findMany(args: any) { return await (rawPrisma as any).visitRecord.findMany(args); },
   },
 
   async $transaction(callbackOrPromises: any) {

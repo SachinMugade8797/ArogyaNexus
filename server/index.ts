@@ -8,6 +8,8 @@ import { loginService } from '../services/auth/login';
 import { logoutService } from '../services/auth/logout';
 import { createSession, getSession, SESSION_COOKIE_NAME } from '../lib/auth/session';
 import { prisma } from '../lib/db/prisma';
+import { z } from 'zod';
+import { canAccessProfile } from '../lib/auth/profileAccess';
 
 dotenv.config();
 
@@ -274,6 +276,62 @@ app.post('/api/appointments', async (req: Request, res: Response) => {
     console.error('[Appointments] Could not create appointment request:', err);
     res.status(500).json({ success: false, error: 'Could not create the appointment request.' });
   }
+});
+
+const profileQuery = z.object({ profileId: z.string().min(1) });
+const tabQuery = z.object({ profileId: z.string().min(1), tab: z.enum(['upcoming', 'past', 'cancelled']).default('upcoming') });
+async function appointmentProfile(req: Request, res: Response) {
+  const session = getSession(req.cookies[SESSION_COOKIE_NAME]);
+  if (!session) { res.status(401).json({ error: 'Authentication required.' }); return null; }
+  const parsed = profileQuery.safeParse(req.query);
+  if (!parsed.success) { res.status(400).json({ error: 'A valid profileId is required.', details: parsed.error.flatten() }); return null; }
+  const aliases: Record<string, string> = { me: 'SELF', mother: 'MOTHER', son: 'SON' };
+  const requested = parsed.data.profileId;
+  const resolved = aliases[requested] ? await prisma.profile.findFirst({ where: { user_id: session.user.id, relation: aliases[requested] }, select: { id: true } }) : { id: requested };
+  const access = resolved && await prisma.profileAccess.findFirst({ where: { profile_id: resolved.id, user_id: session.user.id }, select: { user_id: true, profile_id: true } });
+  if (!canAccessProfile(access, session.user.id)) { res.status(403).json({ error: 'You do not have access to this profile.' }); return null; }
+  return access!.profile_id;
+}
+function appointmentDto(item: any) {
+  const start = new Date(item.appointment_at);
+  const end = new Date(item.ends_at || start.getTime() + 30 * 60000);
+  const status = String(item.status).toUpperCase();
+  return { id: item.id, status, mode: item.mode, startsAt: start, endsAt: end, reason: item.reason, createdAt: item.created_at, doctor: { id: item.doctor.id, name: /^dr\.?\s/i.test(item.doctor.user.full_name) ? item.doctor.user.full_name : `Dr. ${item.doctor.user.full_name}`, specialty: item.doctor.speciality, photoUrl: item.doctor.photo_url }, clinic: { name: item.doctor.clinic_name, address: item.doctor.clinic_address, city: PUBLIC_CITIES.find((city) => item.doctor.clinic_address.toLowerCase().includes(city.toLowerCase())) || '', lat: item.doctor.clinic_lat, lng: item.doctor.clinic_lng }, canJoinVideo: item.mode === 'VIDEO' && status === 'CONFIRMED' && Date.now() >= start.getTime() - 600000 && Date.now() <= end.getTime(), hasPrescription: Boolean(item.visit_record?.prescription_file_key), hasReport: Boolean(item.visit_record?.report_file_key) };
+}
+const appointmentInclude = { doctor: { include: { user: { select: { full_name: true } } } }, visit_record: true };
+app.get('/api/patient/appointments', async (req, res) => {
+  try {
+    const parsed = tabQuery.safeParse(req.query);
+    if (!parsed.success) { res.status(400).json({ error: 'Invalid appointment query.', details: parsed.error.flatten() }); return; }
+    const profileId = await appointmentProfile(req, res); if (!profileId) return;
+    const now = new Date();
+    const where: any = { profile_id: profileId };
+    if (parsed.data.tab === 'upcoming') { where.appointment_at = { gte: now }; where.status = { in: ['pending', 'confirmed', 'PENDING', 'CONFIRMED'] }; }
+    if (parsed.data.tab === 'past') where.OR = [{ status: { in: ['completed', 'COMPLETED'] } }, { appointment_at: { lt: now }, status: { notIn: ['cancelled', 'CANCELLED'] } }];
+    if (parsed.data.tab === 'cancelled') where.status = { in: ['cancelled', 'CANCELLED'] };
+    const rows = await prisma.appointment.findMany({ where, include: appointmentInclude, orderBy: { appointment_at: parsed.data.tab === 'upcoming' ? 'asc' : 'desc' } });
+    res.json({ appointments: rows.map(appointmentDto) });
+  } catch (error) { console.error('[Appointments] list failed', error); res.status(500).json({ error: 'Could not load appointments.' }); }
+});
+app.get('/api/patient/appointments/calendar', async (req, res) => {
+  const input = z.object({ profileId: z.string().min(1), month: z.string().regex(/^\d{4}-\d{2}$/) }).safeParse(req.query);
+  if (!input.success) { res.status(400).json({ error: 'Invalid calendar query.' }); return; }
+  try { const profileId = await appointmentProfile(req, res); if (!profileId) return; const [year, month] = input.data.month.split('-').map(Number); const rows = await prisma.appointment.findMany({ where: { profile_id: profileId, appointment_at: { gte: new Date(year, month - 1, 1), lt: new Date(year, month, 1) } }, select: { appointment_at: true, status: true } }); const groups = new Map<string, any>(); for (const row of rows) { const date = new Date(row.appointment_at).toISOString().slice(0, 10); const old = groups.get(date) || { date, count: 0, status: 'CANCELLED' }; old.count++; const rank: any = { CONFIRMED: 4, confirmed: 4, PENDING: 3, pending: 3, COMPLETED: 2, completed: 2, CANCELLED: 1, cancelled: 1 }; if ((rank[row.status] || 0) > (rank[old.status] || 0)) old.status = String(row.status).toUpperCase(); groups.set(date, old); } res.json({ dates: [...groups.values()] }); } catch (error) { console.error(error); res.status(500).json({ error: 'Could not load calendar.' }); }
+});
+app.get('/api/patient/appointments/past-summary', async (req, res) => {
+  const input = z.object({ profileId: z.string().min(1), limit: z.coerce.number().int().min(1).max(20).default(5) }).safeParse(req.query);
+  if (!input.success) { res.status(400).json({ error: 'Invalid past summary query.' }); return; }
+  try { const profileId = await appointmentProfile(req, res); if (!profileId) return; const rows = await prisma.appointment.findMany({ where: { profile_id: profileId, status: { in: ['completed', 'COMPLETED'] } }, include: appointmentInclude, orderBy: { appointment_at: 'desc' }, take: input.data.limit }); res.json({ visits: rows.map((row: any) => ({ ...appointmentDto(row), date: row.appointment_at, prescriptionUrl: row.visit_record?.prescription_file_key ? `/api/patient/documents/${encodeURIComponent(row.visit_record.prescription_file_key)}` : null, reportUrl: row.visit_record?.report_file_key ? `/api/patient/documents/${encodeURIComponent(row.visit_record.report_file_key)}` : null })) }); } catch (error) { console.error(error); res.status(500).json({ error: 'Could not load past visits.' }); }
+});
+app.patch('/api/patient/appointments/:id/cancel', async (req, res) => {
+  const input = z.object({ profileId: z.string().min(1), reason: z.string().trim().min(1).max(500) }).safeParse({ ...req.body, profileId: req.query.profileId || req.body?.profileId });
+  if (!input.success) { res.status(400).json({ error: 'A cancellation reason is required.', details: input.error.flatten() }); return; }
+  try { const profileId = await appointmentProfile(req, res); if (!profileId) return; const id = String(req.params.id); const row = await prisma.appointment.findFirst({ where: { id, profile_id: profileId } }); if (!row) { res.status(404).json({ error: 'Appointment not found.' }); return; } if (!['pending', 'confirmed', 'PENDING', 'CONFIRMED'].includes(row.status) || new Date(row.appointment_at) <= new Date()) { res.status(409).json({ error: 'This appointment can no longer be cancelled.' }); return; } await prisma.appointment.update({ where: { id }, data: { status: 'CANCELLED', cancel_reason: input.data.reason } }); res.json({ success: true }); } catch (error) { console.error(error); res.status(500).json({ error: 'Could not cancel appointment.' }); }
+});
+app.patch('/api/patient/appointments/:id', async (req, res) => {
+  const input = z.object({ profileId: z.string().min(1), reason: z.string().max(500).optional(), notes: z.string().max(1000).optional() }).safeParse({ ...req.body, profileId: req.query.profileId || req.body?.profileId });
+  if (!input.success) { res.status(400).json({ error: 'Invalid appointment update.', details: input.error.flatten() }); return; }
+  try { const profileId = await appointmentProfile(req, res); if (!profileId) return; const id = String(req.params.id); const row = await prisma.appointment.findFirst({ where: { id, profile_id: profileId } }); if (!row) { res.status(404).json({ error: 'Appointment not found.' }); return; } const data: any = {}; if (input.data.reason !== undefined) data.reason = input.data.reason; if (input.data.notes !== undefined) data.notes = input.data.notes; const updated = await prisma.appointment.update({ where: { id }, data }); res.json({ success: true, id: updated.id }); } catch (error) { console.error(error); res.status(500).json({ error: 'Could not update appointment.' }); }
 });
 
 export { app };
