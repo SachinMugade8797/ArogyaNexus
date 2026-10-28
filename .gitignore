@@ -15,6 +15,7 @@ dist-ssr
 .env.*
 !.env.example
 .local_db.json
+.private-records/
 
 # Editor directories and files
 .vscode/*

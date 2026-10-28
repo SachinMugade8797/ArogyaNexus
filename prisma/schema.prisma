@@ -24,6 +24,8 @@ model User {
 
   doctor_profile DoctorProfile?
   appointments   Appointment[]
+  profiles       Profile[]
+  uploaded_health_records HealthRecord[]
 
   @@index([role])
   @@index([email])
@@ -44,6 +46,12 @@ model DoctorProfile {
 
   user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
   appointments Appointment[]
+  photo_url String?
+  verified Boolean @default(false)
+  clinic_lat Float?
+  clinic_lng Float?
+  health_records HealthRecord[]
+  access_logs AccessLog[]
 
   @@index([user_id])
   @@index([status])
@@ -54,16 +62,128 @@ model DoctorProfile {
 model Appointment {
   id                String   @id @default(uuid())
   patient_id        String
+  profile_id        String?
   doctor_profile_id String
   appointment_at    DateTime
   reason            String?
   status            String   @default("pending")
   created_at        DateTime @default(now())
+  ends_at           DateTime?
+  mode              String @default("IN_PERSON")
+  cancel_reason     String?
+  notes             String?
+  seed_key          String? @unique
 
   patient User @relation(fields: [patient_id], references: [id], onDelete: Cascade)
   doctor  DoctorProfile @relation(fields: [doctor_profile_id], references: [id], onDelete: Cascade)
+  profile Profile? @relation(fields: [profile_id], references: [id], onDelete: Cascade)
+  visit_record VisitRecord?
 
   @@index([patient_id, appointment_at])
   @@index([doctor_profile_id, appointment_at])
   @@map("appointments")
+}
+
+model Profile {
+  id String @id @default(uuid())
+  user_id String
+  name String
+  relation String @default("SELF")
+  seed_key String? @unique
+  allergies String[] @default([])
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  appointments Appointment[]
+  access ProfileAccess[]
+  health_records HealthRecord[]
+  vital_readings VitalReading[]
+  conditions PatientCondition[]
+  access_logs AccessLog[]
+  @@index([user_id])
+  @@map("profiles")
+}
+
+model HealthRecord {
+  id String @id @default(uuid())
+  patient_id String
+  category String
+  title String
+  issuer String
+  record_date DateTime
+  doctor_id String?
+  uploaded_by String
+  source String
+  file_key String @unique
+  file_name String
+  mime_type String
+  size_bytes Int
+  created_at DateTime @default(now())
+  deleted_at DateTime?
+  seed_key String? @unique
+  patient Profile @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  doctor DoctorProfile? @relation(fields: [doctor_id], references: [id], onDelete: SetNull)
+  uploader User @relation(fields: [uploaded_by], references: [id], onDelete: Cascade)
+  access_logs AccessLog[]
+  @@index([patient_id, record_date])
+  @@index([patient_id, category, record_date])
+  @@map("health_records")
+}
+
+model VitalReading {
+  id String @id @default(uuid())
+  patient_id String
+  type String
+  value Float
+  unit String
+  measured_at DateTime
+  source String @default("SELF")
+  seed_key String? @unique
+  patient Profile @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  @@index([patient_id, type, measured_at])
+  @@map("vital_readings")
+}
+
+model PatientCondition {
+  id String @id @default(uuid())
+  patient_id String
+  name String
+  status String @default("ACTIVE")
+  since DateTime?
+  seed_key String? @unique
+  patient Profile @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  @@index([patient_id, status])
+  @@map("patient_conditions")
+}
+
+model AccessLog {
+  id String @id @default(uuid())
+  patient_id String
+  doctor_id String
+  action String
+  record_id String?
+  record_title String?
+  consent_id String?
+  created_at DateTime @default(now())
+  patient Profile @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  doctor DoctorProfile @relation(fields: [doctor_id], references: [id], onDelete: Cascade)
+  record HealthRecord? @relation(fields: [record_id], references: [id], onDelete: SetNull)
+  @@index([patient_id, created_at])
+  @@map("access_logs")
+}
+
+model ProfileAccess {
+  id String @id @default(uuid())
+  profile_id String
+  user_id String
+  profile Profile @relation(fields: [profile_id], references: [id], onDelete: Cascade)
+  @@unique([profile_id, user_id])
+  @@map("profile_access")
+}
+
+model VisitRecord {
+  id String @id @default(uuid())
+  appointment_id String @unique
+  prescription_file_key String?
+  report_file_key String?
+  appointment Appointment @relation(fields: [appointment_id], references: [id], onDelete: Cascade)
+  @@map("visit_records")
 }

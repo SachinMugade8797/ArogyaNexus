@@ -1,0 +1,18 @@
+const day = (offset, hour = 9) => {
+  const date = new Date();
+  date.setDate(date.getDate() + offset);
+  date.setHours(hour, 0, 0, 0);
+  return date.toISOString();
+};
+const shared = { city: 'Bengaluru', lat: 12.9716, lng: 77.5946 };
+const rows = [
+  { id: 'camp-eye-1', organizerDoctorId: 'dr-neha', organizerName: 'Dr. Neha Sharma · Indiranagar Eye Centre', organizerVerified: true, title: 'Free community eye check-up', description: 'A neighbourhood eye health camp with vision screening and optometrist consultations.', specialtyTags: ['Eye', 'Vision'], isFree: true, startsAt: day(2, 9), endsAt: day(2, 13), venueName: 'Indiranagar Eye Centre', address: '100 Feet Road, Indiranagar', ...shared, lat: 12.9784, lng: 77.6408, seatsTotal: 80, seatsLeft: 18, status: 'UPCOMING', services: ['Vision screening', 'Eye pressure check', 'Optometrist consultation'], whatToBring: ['Glasses or previous prescription', 'Health card'] },
+  { id: 'camp-diabetes-1', organizerDoctorId: 'dr-anil', organizerName: 'Apollo Hospitals Bengaluru', organizerVerified: true, title: 'Diabetes & heart health screening', description: 'Free fasting glucose and blood pressure checks with a short prevention consultation.', specialtyTags: ['Diabetes', 'Cardiac'], isFree: true, startsAt: day(5, 8), endsAt: day(5, 12), venueName: 'Apollo Clinic', address: 'Old Airport Road, Bengaluru', ...shared, lat: 12.9592, lng: 77.6471, seatsTotal: 60, seatsLeft: 7, status: 'UPCOMING', services: ['Blood glucose test', 'Blood pressure check', 'Lifestyle counselling'], whatToBring: ['Photo ID', 'Recent prescriptions'] },
+  { id: 'camp-womens-1', organizerDoctorId: 'dr-sarah', organizerName: 'Dr. Sarah Chen · Sakra World Hospital', organizerVerified: true, title: 'Women’s wellness and preventive care', description: 'Preventive health consultations and guidance on routine screenings.', specialtyTags: ['Women’s Health', 'General'], isFree: false, startsAt: day(9, 10), endsAt: day(9, 14), venueName: 'Sakra World Hospital', address: 'Bellandur, Bengaluru', ...shared, lat: 12.9237, lng: 77.676, seatsTotal: 40, seatsLeft: 0, status: 'UPCOMING', services: ['Preventive consultation', 'Screening guidance'], whatToBring: ['Previous health reports'] },
+  { id: 'camp-vaccine-1', organizerDoctorId: null, organizerName: 'BBMP Primary Health Centre', organizerVerified: true, title: 'Seasonal vaccination drive', description: 'Community vaccination support and a nurse-led eligibility check.', specialtyTags: ['Vaccination', 'Community'], isFree: true, startsAt: day(-5, 9), endsAt: day(-5, 13), venueName: 'Domlur PHC', address: 'Domlur, Bengaluru', ...shared, lat: 12.9609, lng: 77.6387, seatsTotal: 100, seatsLeft: 0, status: 'PAST', services: ['Eligibility check', 'Vaccination'], whatToBring: ['Photo ID', 'Vaccination record'] },
+];
+const reminderRows = { me: [], mother: [], son: [] };
+export function listCampsMock() { return rows.map((camp) => ({ ...camp, specialtyTags: [...camp.specialtyTags], services: [...camp.services], whatToBring: [...camp.whatToBring] })); }
+export function listCampRemindersMock(patientId) { return (reminderRows[patientId] || []).map((item) => ({ ...item })); }
+export function saveCampReminderMock(patientId, reminder) { reminderRows[patientId] ||= []; const next = { ...reminder }; const index = reminderRows[patientId].findIndex((item) => item.campId === reminder.campId); if (index >= 0) reminderRows[patientId][index] = next; else reminderRows[patientId].push(next); return { ...next }; }
+export function removeCampReminderMock(patientId, campId) { reminderRows[patientId] = (reminderRows[patientId] || []).filter((item) => item.campId !== campId); return true; }

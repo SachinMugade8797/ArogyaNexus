@@ -36,10 +36,26 @@ export function getDoctorsMock(filters = {}) {
   const query = (filters.query || '').trim().toLowerCase();
   const speciality = (filters.speciality || '').toLowerCase();
   const location = (filters.location || '').toLowerCase();
-  return doctors.filter((doctor) => doctor.status === 'approved')
+  const haversine = (lat1, lon1, lat2, lon2) => {
+    const radians = (degrees) => degrees * Math.PI / 180;
+    const dLat = radians(lat2 - lat1);
+    const dLon = radians(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(radians(lat1)) * Math.cos(radians(lat2)) * Math.sin(dLon / 2) ** 2;
+    return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  };
+  const enriched = doctors.filter((doctor) => doctor.status === 'approved')
     .filter((doctor) => !speciality || doctor.speciality.toLowerCase() === speciality)
     .filter((doctor) => !location || doctor.clinic_address.toLowerCase().includes(location))
-    .filter((doctor) => !query || `${doctor.user.full_name} ${doctor.speciality} ${doctor.clinic_name} ${doctor.clinic_address}`.toLowerCase().includes(query));
+    .filter((doctor) => !query || `${doctor.user.full_name} ${doctor.speciality} ${doctor.clinic_name} ${doctor.clinic_address}`.toLowerCase().includes(query))
+    .map((doctor, index) => ({ ...doctor, rating: [4.9, 4.8, 4.7, 4.9][index] || 4.8, review_count: [128, 96, 74, 112][index] || 40, video_available: index !== 2, today_available: index !== 1, coordinates: [[12.9716, 77.5946], [12.9165, 77.6101], [12.9250, 77.5938], [12.9352, 77.6245]][index] || [12.9716, 77.5946] }));
+  const origin = filters.coordinates || (filters.location === 'bengaluru' ? [12.9716, 77.5946] : null);
+  return enriched.map((doctor) => ({ ...doctor, distance_km: origin ? Number(haversine(origin[0], origin[1], ...doctor.coordinates).toFixed(1)) : [1.8, 4.2, 6.3, 3.1][doctors.findIndex((item) => item.id === doctor.id)] }))
+    .filter((doctor) => !filters.maxFee || doctor.consultation_fee <= Number(filters.maxFee))
+    .filter((doctor) => !filters.minRating || doctor.rating >= Number(filters.minRating))
+    .filter((doctor) => !filters.today || doctor.today_available)
+    .filter((doctor) => !filters.video || doctor.video_available)
+    .filter((doctor) => !filters.distance || doctor.distance_km <= Number(filters.distance))
+    .sort((a, b) => filters.sort === 'fee' ? a.consultation_fee - b.consultation_fee : filters.sort === 'rating' ? b.rating - a.rating : filters.sort === 'distance' ? a.distance_km - b.distance_km : 0);
 }
 
 export function getDoctorMock(doctorId) {
