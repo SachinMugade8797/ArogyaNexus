@@ -25,6 +25,7 @@ const ConsentPage = lazy(() => import('./pages/patient/Consent'));
 const MedicinesPage = lazy(() => import('./pages/patient/Medicines'));
 const DocumentsPage = lazy(() => import('./pages/patient/Documents'));
 const CampsPage = lazy(() => import('./pages/patient/Camps'));
+const DoctorAppointments = lazy(() => import('./pages/doctor/Appointments'));
 import './styles/auth.css';
 import './styles/app-errors.css';
 
@@ -63,6 +64,8 @@ export default function App() {
         <Route path="/reset-password" element={<ResetPasswordPage onToast={addToast} />} />
         <Route path="/patient/*" element={<PatientProtectedRoute />} />
         <Route path="/doctor/dashboard" element={<DashboardPage role="doctor" />} />
+        <Route path="/doctor/appointments" element={<DoctorAppointments />} />
+        <Route path="/doctor/:section" element={<DoctorAppointments comingSoon />} />
         <Route path="/admin/dashboard" element={<DashboardPage role="admin" />} />
         <Route path="*" element={<NotFound />} />
       </Routes></Suspense>
