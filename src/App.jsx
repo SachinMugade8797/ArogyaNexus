@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { Suspense, lazy, useState, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import LoginPage from './pages/LoginPage';
 import RegisterSelectPage from './pages/RegisterSelectPage';
@@ -9,20 +9,24 @@ import ResetPasswordPage from './pages/ResetPasswordPage';
 import DashboardPage from './pages/DashboardPage';
 import { DoctorDiscoveryPage, PublicDoctorProfilePage, PublicHomePage } from './pages/PublicPages';
 import Toast from './components/auth/Toast';
-import PatientDashboard from './pages/patient/Dashboard';
+import AppErrorBoundary from './components/ui/AppErrorBoundary';
+import NotFound from './pages/NotFound';
 import { ActiveProfileProvider } from './contexts/ActiveProfileContext';
-import DoctorDirectory from './pages/patient/DoctorDirectory';
-import DoctorProfile from './pages/patient/DoctorProfile';
-import BookAppointment from './pages/patient/BookAppointment';
-import PatientAppointments from './pages/patient/Appointments';
-import AppointmentCallPlaceholder from './pages/patient/AppointmentCallPlaceholder';
-import PatientRecords from './pages/patient/Records';
-import FamilyPage from './pages/patient/Family';
-import SettingsPage from './pages/patient/Settings';
-import ConsentPage from './pages/patient/Consent';
-import MedicinesPage from './pages/patient/Medicines';
-import DocumentsPage from './pages/patient/Documents';
+const PatientDashboard = lazy(() => import('./pages/patient/Dashboard'));
+const DoctorDirectory = lazy(() => import('./pages/patient/DoctorDirectory'));
+const DoctorProfile = lazy(() => import('./pages/patient/DoctorProfile'));
+const BookAppointment = lazy(() => import('./pages/patient/BookAppointment'));
+const PatientAppointments = lazy(() => import('./pages/patient/Appointments'));
+const AppointmentCallPlaceholder = lazy(() => import('./pages/patient/AppointmentCallPlaceholder'));
+const PatientRecords = lazy(() => import('./pages/patient/Records'));
+const FamilyPage = lazy(() => import('./pages/patient/Family'));
+const SettingsPage = lazy(() => import('./pages/patient/Settings'));
+const ConsentPage = lazy(() => import('./pages/patient/Consent'));
+const MedicinesPage = lazy(() => import('./pages/patient/Medicines'));
+const DocumentsPage = lazy(() => import('./pages/patient/Documents'));
+const CampsPage = lazy(() => import('./pages/patient/Camps'));
 import './styles/auth.css';
+import './styles/app-errors.css';
 
 export default function App() {
   const [toasts, setToasts] = useState([]);
@@ -43,11 +47,11 @@ export default function App() {
   }, []);
 
   return (
-    <BrowserRouter>
+    <BrowserRouter><AppErrorBoundary>
       {/* Toast Notification Container */}
       <Toast toasts={toasts} onRemove={removeToast} />
 
-      <Routes>
+      <Suspense fallback={<div className="patient-route-loading" role="status">Loading page…</div>}><Routes>
         <Route path="/" element={<PublicHomePage />} />
         <Route path="/doctors" element={<DoctorDiscoveryPage />} />
         <Route path="/doctors/:doctorId" element={<PublicDoctorProfilePage />} />
@@ -60,9 +64,9 @@ export default function App() {
         <Route path="/patient/*" element={<PatientProtectedRoute />} />
         <Route path="/doctor/dashboard" element={<DashboardPage role="doctor" />} />
         <Route path="/admin/dashboard" element={<DashboardPage role="admin" />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </BrowserRouter>
+        <Route path="*" element={<NotFound />} />
+      </Routes></Suspense>
+    </AppErrorBoundary></BrowserRouter>
   );
 }
 
@@ -70,6 +74,8 @@ function PatientProtectedRoute() {
   const fakeUser = { id: 'demo-patient', full_name: 'Rahul K.', role: 'patient' };
   if (fakeUser.role !== 'patient') return <Navigate to="/login" replace />;
   return <ActiveProfileProvider><Routes>
+    <Route index element={<Navigate to="dashboard" replace />} />
+    <Route path="dashboard" element={<PatientDashboard user={fakeUser} />} />
     <Route path="doctors" element={<DoctorDirectory />} />
     <Route path="doctors/:doctorId" element={<DoctorProfile />} />
     <Route path="book-appointment/:doctorId" element={<BookAppointment />} />
@@ -80,8 +86,9 @@ function PatientProtectedRoute() {
     <Route path="consent" element={<ConsentPage />} />
     <Route path="medicines" element={<MedicinesPage />} />
     <Route path="documents" element={<DocumentsPage />} />
+    <Route path="camps" element={<CampsPage />} />
     <Route path="book/:doctorId" element={<BookAppointment />} />
     <Route path="appointments/:id/call" element={<AppointmentCallPlaceholder />} />
-    <Route path="*" element={<PatientDashboard user={fakeUser} />} />
+    <Route path="*" element={<NotFound patient />} />
   </Routes></ActiveProfileProvider>;
 }

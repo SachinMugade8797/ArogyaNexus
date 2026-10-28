@@ -1,9 +1,9 @@
-import { AlertCircle, CheckCircle2, Info, LoaderCircle, XCircle } from 'lucide-react';
+import { AlertCircle, Ban, CheckCircle2, Clock3, Info, LoaderCircle, ShieldOff, XCircle } from 'lucide-react';
 import '../../styles/patient-dashboard.css';
 export { default as Stepper } from './Stepper';
 export { default as SlotChips } from './SlotChips';
 export { Modal, ConfirmDialog } from './Modal';
-export { Tabs, DataTable, TagInput, Toggle, ProgressRing, Popover, Dropzone, FilePreviewModal } from './PatientExtras';
+export { Tabs, DataTable, TagInput, Toggle, ProgressRing, Popover, Dropzone, FilePreviewModal, Drawer } from './PatientExtras';
 
 export function Card({ children, className = '', title, action, state, onRetry, emptyText = 'Nothing to show yet.' }) {
   return <section className={`patient-card ${className}`} aria-busy={state === 'loading'}>
@@ -12,9 +12,10 @@ export function Card({ children, className = '', title, action, state, onRetry, 
   </section>;
 }
 
-export function StatusChip({ status, icon: Icon = Info }) {
-  const tone = /confirmed|active|taken|approved/i.test(status) ? 'success' : /pending|due|upcoming/i.test(status) ? 'warning' : 'neutral';
-  const StatusIcon = /confirmed|active|taken|approved/i.test(status) ? CheckCircle2 : /pending|due|upcoming/i.test(status) ? AlertCircle : Icon;
+export function StatusChip({ status, icon: Icon = Info, tone: toneOverride }) {
+  const key = String(status).toLowerCase();
+  const tone = toneOverride || (/denied|missed/.test(key) ? 'danger' : /confirmed|active|taken|approved/.test(key) ? 'success' : /pending|due|upcoming/.test(key) ? 'warning' : 'neutral');
+  const StatusIcon = /revoked|cancelled/.test(key) ? ShieldOff : /expired|completed/.test(key) ? Clock3 : /denied|missed/.test(key) ? Ban : /pending|due|upcoming/.test(key) ? AlertCircle : /confirmed|active|taken|approved/.test(key) ? CheckCircle2 : Icon;
   return <span className={`patient-status ${tone}`}><StatusIcon size={14} aria-hidden="true" />{status}</span>;
 }
 

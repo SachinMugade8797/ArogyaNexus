@@ -6,6 +6,7 @@ const profiles = [
   { id: 'mother', label: 'Mother', name: 'Sunita K.', color: 'violet' },
   { id: 'son', label: 'Son', name: 'Aarav K.', color: 'amber' },
 ];
+// Profile-scoped data: appointments, records, vitals, consents, medicines, documents, family details, settings, and camp reminders.
 export function ActiveProfileProvider({ children }) {
   const [extraProfiles, setExtraProfiles] = useState(() => {
     try { return JSON.parse(window.localStorage.getItem('arogyanexus.extraProfiles') || '[]'); } catch { return []; }

@@ -5,6 +5,7 @@ import PatientLayout from '../../components/patient/PatientLayout';
 import { Avatar, Button, Card, EmptyState, ErrorState, Skeleton, StatusChip, Modal, ConfirmDialog } from '../../components/ui';
 import { useActiveProfile } from '../../contexts/activeProfile';
 import { addVital, deleteRecord, getAccessHistory, getRecordConditions, getRecordVitals, getRecords, recordFileUrl, saveConditions, uploadRecord } from '../../api/records';
+import { formatPatientDate } from '../../utils/dates';
 import '../../styles/patient-records.css';
 
 const TABS = [['ALL', 'All Records'], ['LAB_REPORT', 'Lab Reports'], ['PRESCRIPTION', 'Prescriptions'], ['IMAGING', 'Imaging & Scans'], ['DISCHARGE_SUMMARY', 'Discharge Summaries']];
@@ -13,7 +14,7 @@ const VITALS = [
   { type: 'BLOOD_PRESSURE', title: 'Blood Pressure', unit: 'mmHg', tone: 'teal' },
   { type: 'CHOLESTEROL_TOTAL', title: 'Cholesterol (Total)', unit: 'mg/dL', tone: 'blue' },
 ];
-const displayDate = (value) => new Date(value).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+const displayDate = (value) => formatPatientDate(value);
 const todayDate = () => new Date().toLocaleDateString('en-CA');
 
 export default function Records() {

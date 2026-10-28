@@ -3,15 +3,11 @@ import { AlertTriangle, ArrowDownToLine, ArrowRight, CalendarDays, Check, Chevro
 import { Avatar, Button, Card, StatusChip } from '../ui';
 import { getConsentDaysRemaining } from '../../utils/consent';
 import { Link } from 'react-router-dom';
+import { formatRelativeDate } from '../../utils/dates';
 
 function relativeDate(value) {
-  if (!value) return 'Date to be confirmed';
-  const date = new Date(value);
-  const day = date.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' });
-  const time = date.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
-  const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
-  const label = date.toDateString() === tomorrow.toDateString() ? 'Tomorrow' : date.toDateString() === new Date().toDateString() ? 'Today' : day;
-  return <time dateTime={date.toISOString()} title={date.toLocaleString('en-IN', { dateStyle: 'full', timeStyle: 'short' })}>{label}, {time}</time>;
+  const formatted = formatRelativeDate(value);
+  return <time dateTime={formatted.dateTime} title={formatted.title}>{formatted.label}</time>;
 }
 
 export function ActionStrip({ actions }) {
