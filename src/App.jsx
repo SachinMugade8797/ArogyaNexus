@@ -17,6 +17,8 @@ import BookAppointment from './pages/patient/BookAppointment';
 import PatientAppointments from './pages/patient/Appointments';
 import AppointmentCallPlaceholder from './pages/patient/AppointmentCallPlaceholder';
 import PatientRecords from './pages/patient/Records';
+import FamilyPage from './pages/patient/Family';
+import SettingsPage from './pages/patient/Settings';
 import './styles/auth.css';
 
 export default function App() {
@@ -70,6 +72,8 @@ function PatientProtectedRoute() {
     <Route path="book-appointment/:doctorId" element={<BookAppointment />} />
     <Route path="appointments" element={<PatientAppointments />} />
     <Route path="records" element={<PatientRecords />} />
+    <Route path="family" element={<FamilyPage />} />
+    <Route path="settings" element={<SettingsPage />} />
     <Route path="book/:doctorId" element={<BookAppointment />} />
     <Route path="appointments/:id/call" element={<AppointmentCallPlaceholder />} />
     <Route path="*" element={<PatientDashboard user={fakeUser} />} />
