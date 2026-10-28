@@ -10,6 +10,10 @@ import { createSession, getSession, SESSION_COOKIE_NAME } from '../lib/auth/sess
 import { prisma } from '../lib/db/prisma';
 import { z } from 'zod';
 import { canAccessProfile } from '../lib/auth/profileAccess';
+import { readRecordMultipart, detectRecordMime } from './multipart';
+import { recordPath, removeRecord, storeRecord } from './recordStorage';
+import path from 'node:path';
+import { vitalRangeStart, recordCategoryFilter } from '../lib/records/logic';
 
 dotenv.config();
 
@@ -332,6 +336,113 @@ app.patch('/api/patient/appointments/:id', async (req, res) => {
   const input = z.object({ profileId: z.string().min(1), reason: z.string().max(500).optional(), notes: z.string().max(1000).optional() }).safeParse({ ...req.body, profileId: req.query.profileId || req.body?.profileId });
   if (!input.success) { res.status(400).json({ error: 'Invalid appointment update.', details: input.error.flatten() }); return; }
   try { const profileId = await appointmentProfile(req, res); if (!profileId) return; const id = String(req.params.id); const row = await prisma.appointment.findFirst({ where: { id, profile_id: profileId } }); if (!row) { res.status(404).json({ error: 'Appointment not found.' }); return; } const data: any = {}; if (input.data.reason !== undefined) data.reason = input.data.reason; if (input.data.notes !== undefined) data.notes = input.data.notes; const updated = await prisma.appointment.update({ where: { id }, data }); res.json({ success: true, id: updated.id }); } catch (error) { console.error(error); res.status(500).json({ error: 'Could not update appointment.' }); }
+});
+
+const RECORD_CATEGORIES = ['LAB_REPORT', 'PRESCRIPTION', 'IMAGING', 'DISCHARGE_SUMMARY', 'OTHER'] as const;
+const VITAL_TYPES = ['BLOOD_SUGAR_FASTING', 'BP_SYSTOLIC', 'BP_DIASTOLIC', 'CHOLESTEROL_TOTAL', 'HEART_RATE', 'WEIGHT'] as const;
+const recordsQuery = z.object({ profileId: z.string().min(1) });
+async function recordsProfile(req: Request, res: Response, requested?: unknown) {
+  const session = getSession(req.cookies[SESSION_COOKIE_NAME]);
+  if (!session) { res.status(401).json({ error: 'Authentication required.' }); return null; }
+  const parsed = recordsQuery.safeParse({ profileId: requested ?? req.query.profileId });
+  if (!parsed.success) { res.status(400).json({ error: 'A valid profileId is required.' }); return null; }
+  const relation: Record<string, string> = { me: 'SELF', mother: 'MOTHER', son: 'SON' };
+  const alias = relation[parsed.data.profileId];
+  const profile = alias ? await prisma.profile.findFirst({ where: { user_id: session.user.id, relation: alias }, select: { id: true } }) : { id: parsed.data.profileId };
+  const access = profile && await prisma.profileAccess.findFirst({ where: { profile_id: profile.id, user_id: session.user.id }, select: { profile_id: true, user_id: true } });
+  if (!canAccessProfile(access, session.user.id)) { res.status(403).json({ error: 'You do not have access to this profile.' }); return null; }
+  return { id: access!.profile_id, userId: session.user.id };
+}
+const mimeLabel = (mime: string) => mime === 'application/pdf' ? 'PDF' : mime === 'image/jpeg' ? 'JPG' : mime === 'image/png' ? 'PNG' : 'FILE';
+app.get('/api/patient/records/vitals', async (req, res) => {
+  const input = z.object({ profileId: z.string().min(1), range: z.enum(['30d', '90d', '1y']).default('30d') }).safeParse(req.query);
+  if (!input.success) { res.status(400).json({ error: 'Invalid vital range.' }); return; }
+  try {
+    const profile = await recordsProfile(req, res); if (!profile) return;
+    const rows = await prisma.vitalReading.findMany({ where: { patient_id: profile.id, measured_at: { gte: vitalRangeStart(input.data.range) } }, orderBy: { measured_at: 'asc' } });
+    const types = [...VITAL_TYPES].filter((type) => type !== 'BP_DIASTOLIC'); const vitals: Record<string, any> = {};
+    for (const type of types) {
+      if (type === 'BP_SYSTOLIC') {
+        const sys = rows.filter((row: any) => row.type === 'BP_SYSTOLIC'); const dia = rows.filter((row: any) => row.type === 'BP_DIASTOLIC');
+        const points = sys.map((row: any) => { const pair = dia.reduce((best: any, candidate: any) => Math.abs(new Date(candidate.measured_at).getTime() - new Date(row.measured_at).getTime()) < Math.abs(new Date(best?.measured_at || 0).getTime() - new Date(row.measured_at).getTime()) ? candidate : best, null); return { measuredAt: row.measured_at, systolic: row.value, diastolic: pair && Math.abs(new Date(pair.measured_at).getTime() - new Date(row.measured_at).getTime()) < 60000 ? pair.value : null, unit: row.unit }; });
+        const latest = [...points].reverse().find((point) => point.diastolic != null); vitals.BLOOD_PRESSURE = { latest: latest ? { systolic: latest.systolic, diastolic: latest.diastolic, unit: latest.unit, measuredAt: latest.measuredAt } : null, points }; continue;
+      }
+      const series = rows.filter((row: any) => row.type === type).map((row: any) => ({ value: row.value, unit: row.unit, measuredAt: row.measured_at }));
+      vitals[type] = { latest: series.at(-1) || null, points: series };
+    }
+    res.json({ vitals });
+  } catch (error) { console.error('[Records] vitals failed', error); res.status(500).json({ error: 'Could not load vital readings.' }); }
+});
+app.get('/api/patient/records/conditions', async (req, res) => {
+  try { const profile = await recordsProfile(req, res); if (!profile) return; const [patient, conditions] = await Promise.all([prisma.profile.findFirst({ where: { id: profile.id }, select: { allergies: true } }), prisma.patientCondition.findMany({ where: { patient_id: profile.id }, orderBy: [{ status: 'asc' }, { name: 'asc' }] })]); res.json({ conditions: conditions.map((item: any) => ({ id: item.id, name: item.name, status: item.status, since: item.since })), allergies: patient?.allergies || [] }); }
+  catch (error) { console.error('[Records] conditions failed', error); res.status(500).json({ error: 'Could not load conditions.' }); }
+});
+app.patch('/api/patient/records/conditions', async (req, res) => {
+  const input = z.object({ profileId: z.string().min(1), allergies: z.array(z.string().trim().min(1).max(80)).max(30), conditions: z.array(z.object({ name: z.string().trim().min(1).max(100), status: z.enum(['ACTIVE', 'RESOLVED']), since: z.string().date().optional().or(z.literal('')) })).max(50) }).safeParse({ ...req.body, profileId: req.query.profileId || req.body?.profileId });
+  if (!input.success) { res.status(400).json({ error: 'Invalid condition details.', details: input.error.flatten() }); return; }
+  try { const profile = await recordsProfile(req, res); if (!profile) return; await prisma.profile.update({ where: { id: profile.id }, data: { allergies: [...new Set(input.data.allergies.map((allergy) => allergy.trim()).filter(Boolean))] } }); await prisma.patientCondition.deleteMany({ where: { patient_id: profile.id } }); for (const condition of input.data.conditions) await prisma.patientCondition.create({ data: { patient_id: profile.id, name: condition.name, status: condition.status, since: condition.since ? new Date(condition.since) : null } }); res.json({ success: true }); }
+  catch (error) { console.error('[Records] condition update failed', error); res.status(500).json({ error: 'Could not save condition details.' }); }
+});
+app.get('/api/patient/records', async (req, res) => {
+  const input = z.object({ profileId: z.string().min(1), category: z.enum(['ALL', ...RECORD_CATEGORIES]).default('ALL'), q: z.string().max(120).default(''), from: z.string().date().optional(), to: z.string().date().optional(), page: z.coerce.number().int().min(1).default(1), pageSize: z.coerce.number().int().min(1).max(50).default(8) }).safeParse(req.query);
+  if (!input.success) { res.status(400).json({ error: 'Invalid records query.', details: input.error.flatten() }); return; }
+  try {
+    const profile = await recordsProfile(req, res); if (!profile) return;
+    const where: any = { patient_id: profile.id, deleted_at: null };
+    const selectedCategory = recordCategoryFilter(input.data.category); if (selectedCategory) where.category = selectedCategory;
+    if (input.data.q.trim()) where.OR = [{ title: { contains: input.data.q.trim(), mode: 'insensitive' } }, { issuer: { contains: input.data.q.trim(), mode: 'insensitive' } }];
+    if (input.data.from || input.data.to) where.record_date = { ...(input.data.from ? { gte: new Date(`${input.data.from}T00:00:00`) } : {}), ...(input.data.to ? { lte: new Date(`${input.data.to}T23:59:59.999`) } : {}) };
+    const [rows, total] = await Promise.all([prisma.healthRecord.findMany({ where, include: { doctor: { include: { user: { select: { full_name: true } } } } }, orderBy: { record_date: 'desc' }, skip: (input.data.page - 1) * input.data.pageSize, take: input.data.pageSize }), prisma.healthRecord.count({ where })]);
+    res.json({ records: rows.map((row: any) => ({ id: row.id, title: row.title, issuer: row.issuer, recordDate: row.record_date, category: row.category, fileType: mimeLabel(row.mime_type), mimeType: row.mime_type, fileName: row.file_name, source: row.source, doctor: row.doctor ? { name: row.doctor.user.full_name, photoUrl: row.doctor.photo_url } : null })), page: input.data.page, pageSize: input.data.pageSize, total, hasMore: input.data.page * input.data.pageSize < total });
+  } catch (error) { console.error('[Records] list failed', error); res.status(500).json({ error: 'Could not load health records.' }); }
+});
+app.get('/api/patient/records/access-history', async (req, res) => {
+  const input = z.object({ profileId: z.string().min(1), limit: z.coerce.number().int().min(1).max(50).default(10), cursor: z.string().optional() }).safeParse(req.query);
+  if (!input.success) { res.status(400).json({ error: 'Invalid access history query.' }); return; }
+  try { const profile = await recordsProfile(req, res); if (!profile) return; const rows = await prisma.accessLog.findMany({ where: { patient_id: profile.id }, include: { doctor: { include: { user: { select: { full_name: true } } } } }, orderBy: { created_at: 'desc' }, take: input.data.limit, ...(input.data.cursor ? { skip: 1, cursor: { id: input.data.cursor } } : {}) }); res.json({ entries: rows.map((row: any) => ({ id: row.id, doctor: { name: row.doctor.user.full_name, photoUrl: row.doctor.photo_url }, action: row.action, recordTitle: row.record_title, createdAt: row.created_at })) }); }
+  catch (error) { console.error('[Records] access history failed', error); res.status(500).json({ error: 'Could not load access history.' }); }
+});
+app.get('/api/patient/records/:id/file', async (req, res) => {
+  const input = z.object({ profileId: z.string().min(1), disposition: z.enum(['inline', 'attachment']).default('inline') }).safeParse(req.query);
+  if (!input.success) { res.status(400).json({ error: 'Invalid file request.' }); return; }
+  try { const profile = await recordsProfile(req, res); if (!profile) return; const row = await prisma.healthRecord.findFirst({ where: { id: String(req.params.id), patient_id: profile.id, deleted_at: null } }); if (!row) { res.status(404).json({ error: 'Record not found.' }); return; } res.setHeader('Content-Type', row.mime_type); res.setHeader('Content-Disposition', `${input.data.disposition}; filename*=UTF-8''${encodeURIComponent(row.file_name)}`); res.setHeader('Cache-Control', 'private, no-store'); res.sendFile(recordPath(row.file_key), (error) => { if (error && !res.headersSent) res.status(404).json({ error: 'Record file is unavailable.' }); }); }
+  catch (error) { console.error('[Records] file access failed', error); if (!res.headersSent) res.status(500).json({ error: 'Could not open this record.' }); }
+});
+app.post('/api/patient/records', async (req, res) => {
+  const session = getSession(req.cookies[SESSION_COOKIE_NAME]); if (!session) { res.status(401).json({ error: 'Authentication required.' }); return; }
+  let storedKey: string | null = null;
+  try {
+    const multipart = await readRecordMultipart(req); const input = z.object({ profileId: z.string().min(1), title: z.string().trim().min(1).max(160), category: z.enum(RECORD_CATEGORIES), issuer: z.string().trim().min(1).max(160), recordDate: z.string().date(), doctorName: z.string().max(120).optional() }).safeParse(multipart.fields);
+    if (!input.success) { res.status(400).json({ error: 'Complete the record details.', details: input.error.flatten() }); return; }
+    if (!multipart.file.bytes.length || multipart.file.bytes.length > 10 * 1024 * 1024) { res.status(400).json({ error: 'Record file must be between 1 byte and 10 MB.' }); return; }
+    const detected = detectRecordMime(multipart.file.bytes); if (!detected) { res.status(415).json({ error: 'Only genuine PDF, JPG, or PNG files are accepted.' }); return; }
+    const profile = await recordsProfile(req, res, input.data.profileId); if (!profile) return;
+    const safeName = Array.from(path.basename(multipart.file.filename)).filter((character) => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127).join('').slice(0, 180);
+    const fileName = `${path.parse(safeName).name || 'health-record'}.${detected.extension}`;
+    let doctorId: string | null = null;
+    if (input.data.doctorName?.trim()) {
+      const doctors = await prisma.doctorProfile.findMany({ where: { status: 'approved' }, include: { user: { select: { full_name: true } } } });
+      const doctor = doctors.find((candidate: any) => candidate.user.full_name.toLocaleLowerCase() === input.data.doctorName!.trim().toLocaleLowerCase());
+      if (!doctor) { res.status(400).json({ error: 'That doctor was not found. Clear the doctor name or choose a listed doctor.' }); return; }
+      doctorId = doctor.id;
+    }
+    storedKey = await storeRecord(multipart.file.bytes, detected.extension);
+    const record = await prisma.healthRecord.create({ data: { patient_id: profile.id, category: input.data.category, title: input.data.title, issuer: input.data.issuer, record_date: new Date(`${input.data.recordDate}T12:00:00`), doctor_id: doctorId, uploaded_by: session.user.id, source: 'PATIENT_UPLOAD', file_key: storedKey, file_name: fileName, mime_type: detected.mimeType, size_bytes: multipart.file.bytes.length } });
+    res.status(201).json({ success: true, id: record.id });
+  } catch (error: any) { if (storedKey) await removeRecord(storedKey).catch(() => undefined); const status = /10 MB|multipart|Choose|Upload one/.test(error?.message || '') ? 400 : 500; res.status(status).json({ error: error?.message || 'Could not upload this record.' }); }
+});
+app.delete('/api/patient/records/:id', async (req, res) => {
+  const input = recordsQuery.safeParse(req.query); if (!input.success) { res.status(400).json({ error: 'A valid profileId is required.' }); return; }
+  try { const profile = await recordsProfile(req, res); if (!profile) return; const row = await prisma.healthRecord.findFirst({ where: { id: String(req.params.id), patient_id: profile.id, deleted_at: null } }); if (!row) { res.status(404).json({ error: 'Record not found.' }); return; } if (row.source !== 'PATIENT_UPLOAD') { res.status(403).json({ error: 'Doctor-written records cannot be removed.' }); return; } await prisma.healthRecord.update({ where: { id: row.id }, data: { deleted_at: new Date() } }); res.json({ success: true }); }
+  catch (error) { console.error('[Records] delete failed', error); res.status(500).json({ error: 'Could not remove this record.' }); }
+});
+app.post('/api/patient/records/vitals', async (req, res) => {
+  const input = z.object({ profileId: z.string().min(1), type: z.enum(VITAL_TYPES), value: z.number().finite().optional(), systolic: z.number().finite().optional(), diastolic: z.number().finite().optional(), measuredAt: z.string().datetime().optional() }).safeParse({ ...req.body, profileId: req.query.profileId || req.body?.profileId });
+  if (!input.success) { res.status(400).json({ error: 'Invalid vital reading.', details: input.error.flatten() }); return; }
+  const ranges: Record<string, [number, number, string]> = { BLOOD_SUGAR_FASTING: [20, 600, 'mg/dL'], BP_SYSTOLIC: [50, 300, 'mmHg'], CHOLESTEROL_TOTAL: [50, 1000, 'mg/dL'], HEART_RATE: [20, 250, 'bpm'], WEIGHT: [1, 500, 'kg'] };
+  const readingAt = input.data.measuredAt ? new Date(input.data.measuredAt) : new Date(); if (readingAt.getTime() > Date.now() + 300000) { res.status(400).json({ error: 'Measurement date cannot be in the future.' }); return; }
+  try { const profile = await recordsProfile(req, res); if (!profile) return; const data: any[] = []; if (input.data.type === 'BP_SYSTOLIC') { if (input.data.systolic == null || input.data.diastolic == null || input.data.systolic < 50 || input.data.systolic > 300 || input.data.diastolic < 30 || input.data.diastolic > 200) { res.status(400).json({ error: 'Enter blood pressure between 50–300 / 30–200 mmHg.' }); return; } data.push({ patient_id: profile.id, type: 'BP_SYSTOLIC', value: input.data.systolic, unit: 'mmHg', measured_at: readingAt, source: 'SELF' }, { patient_id: profile.id, type: 'BP_DIASTOLIC', value: input.data.diastolic, unit: 'mmHg', measured_at: readingAt, source: 'SELF' }); } else { const config = ranges[input.data.type]; if (input.data.value == null || input.data.value < config[0] || input.data.value > config[1]) { res.status(400).json({ error: `Value must be from ${config[0]} to ${config[1]} ${config[2]}.` }); return; } data.push({ patient_id: profile.id, type: input.data.type, value: input.data.value, unit: config[2], measured_at: readingAt, source: 'SELF' }); } for (const row of data) await prisma.vitalReading.create({ data: row }); res.status(201).json({ success: true }); }
+  catch (error) { console.error('[Records] vital save failed', error); res.status(500).json({ error: 'Could not save this reading.' }); }
 });
 
 export { app };

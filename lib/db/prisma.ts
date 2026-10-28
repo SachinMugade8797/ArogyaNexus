@@ -585,12 +585,33 @@ export const prisma = {
   profile: {
     async findMany(args: any) { return await (rawPrisma as any).profile.findMany(args); },
     async findFirst(args: any) { return await (rawPrisma as any).profile.findFirst(args); },
+    async update(args: any) { return await (rawPrisma as any).profile.update(args); },
   },
   profileAccess: {
     async findFirst(args: any) { return await (rawPrisma as any).profileAccess.findFirst(args); },
   },
   visitRecord: {
     async findMany(args: any) { return await (rawPrisma as any).visitRecord.findMany(args); },
+  },
+  healthRecord: {
+    async findMany(args: any) { return await (rawPrisma as any).healthRecord.findMany(args); },
+    async findFirst(args: any) { return await (rawPrisma as any).healthRecord.findFirst(args); },
+    async create(args: any) { return await (rawPrisma as any).healthRecord.create(args); },
+    async update(args: any) { return await (rawPrisma as any).healthRecord.update(args); },
+    async count(args: any) { return await (rawPrisma as any).healthRecord.count(args); },
+  },
+  vitalReading: {
+    async findMany(args: any) { return await (rawPrisma as any).vitalReading.findMany(args); },
+    async create(args: any) { return await (rawPrisma as any).vitalReading.create(args); },
+  },
+  patientCondition: {
+    async findMany(args: any) { return await (rawPrisma as any).patientCondition.findMany(args); },
+    async create(args: any) { return await (rawPrisma as any).patientCondition.create(args); },
+    async update(args: any) { return await (rawPrisma as any).patientCondition.update(args); },
+    async deleteMany(args: any) { return await (rawPrisma as any).patientCondition.deleteMany(args); },
+  },
+  accessLog: {
+    async findMany(args: any) { return await (rawPrisma as any).accessLog.findMany(args); },
   },
 
   async $transaction(callbackOrPromises: any) {

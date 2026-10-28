@@ -2,6 +2,7 @@ import { AlertCircle, CheckCircle2, Info, LoaderCircle, XCircle } from 'lucide-r
 import '../../styles/patient-dashboard.css';
 export { default as Stepper } from './Stepper';
 export { default as SlotChips } from './SlotChips';
+export { Modal, ConfirmDialog } from './Modal';
 
 export function Card({ children, className = '', title, action, state, onRetry, emptyText = 'Nothing to show yet.' }) {
   return <section className={`patient-card ${className}`} aria-busy={state === 'loading'}>

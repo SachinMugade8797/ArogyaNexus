@@ -12,7 +12,8 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "vitest run",
-    "db:seed:appointments": "tsx prisma/seed-appointments.ts"
+    "db:seed:appointments": "tsx prisma/seed-appointments.ts",
+    "db:seed:records": "tsx prisma/seed-records.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
