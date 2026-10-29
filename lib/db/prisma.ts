@@ -399,6 +399,24 @@ const fallbackUser = {
       return newUser;
     }
   },
+
+  async update(args: { where: { id?: string; email?: string }; data: any }) {
+    const db = loadLocalDB();
+    const index = db.users.findIndex((u) => {
+      if (args.where.id && u.id === args.where.id) return true;
+      if (args.where.email && u.email?.toLowerCase() === args.where.email.toLowerCase()) return true;
+      return false;
+    });
+    if (index < 0) return null;
+    const updated = {
+      ...db.users[index],
+      ...args.data,
+      updated_at: new Date().toISOString(),
+    };
+    db.users[index] = updated;
+    saveLocalDB(db);
+    return updated;
+  },
 };
 
 const fallbackDoctorProfile = {
@@ -424,10 +442,14 @@ const fallbackDoctorProfile = {
     });
   },
 
-  async update(args: { where: { id: string }; data: { status?: string } }) {
+  async update(args: { where: { id?: string; user_id?: string }; data: any }) {
     const db = loadLocalDB();
-    const profile = db.doctor_profiles.find((entry) => entry.id === args.where.id);
-    if (!profile) throw new Error('Doctor application not found.');
+    const profile = db.doctor_profiles.find((entry) => {
+      if (args.where.id && entry.id === args.where.id) return true;
+      if (args.where.user_id && entry.user_id === args.where.user_id) return true;
+      return false;
+    });
+    if (!profile) throw new Error('Doctor profile not found.');
     Object.assign(profile, args.data, { updated_at: new Date().toISOString() });
     saveLocalDB(db);
     return { ...profile };
@@ -809,6 +831,24 @@ export const prisma = {
           postgresAvailable = false;
           logFallbackNotice();
           return await fallbackUser.upsert(args);
+        }
+        throw err;
+      }
+    },
+
+    async update(args: any) {
+      const running = await isPostgresRunning();
+      if (!running) {
+        logFallbackNotice();
+        return await fallbackUser.update(args);
+      }
+      try {
+        return await (rawPrisma as any).user.update(args);
+      } catch (err) {
+        if (isConnectionError(err) || isSchemaCompatibilityError(err)) {
+          postgresAvailable = false;
+          logFallbackNotice();
+          return await fallbackUser.update(args);
         }
         throw err;
       }

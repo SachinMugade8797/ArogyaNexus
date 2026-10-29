@@ -7,6 +7,7 @@ import { registerDoctorService } from '../services/auth/register-doctor';
 import { loginService } from '../services/auth/login';
 import { logoutService } from '../services/auth/logout';
 import { createSession, getSession, SESSION_COOKIE_NAME } from '../lib/auth/session';
+import { hashPassword, verifyPassword } from '../lib/auth/password';
 import { prisma } from '../lib/db/prisma';
 import { z } from 'zod';
 import { canAccessProfile } from '../lib/auth/profileAccess';
@@ -667,6 +668,173 @@ app.patch('/api/doctor/appointments/:id/status', async (req: Request, res: Respo
   } catch (error) {
     console.error('[Doctor Appointments] status error:', error);
     res.status(500).json({ success: false, error: 'Could not update status.' });
+  }
+});
+
+// ----------------------------------------------------------------------------
+// Doctor Settings & Profile Endpoints
+// ----------------------------------------------------------------------------
+app.get('/api/doctor/profile', async (req: Request, res: Response) => {
+  try {
+    const session = getSession(req.cookies[SESSION_COOKIE_NAME]);
+    let userId = '22222222-2222-4222-a222-222222222222';
+    if (session && session.user.role === 'doctor') {
+      userId = session.user.id;
+    }
+
+    const user = await prisma.user.findFirst({ where: { id: userId } });
+    if (!user) {
+      res.status(404).json({ success: false, error: 'Doctor not found.' });
+      return;
+    }
+
+    const profile = await prisma.doctorProfile.findUnique({ where: { user_id: user.id } });
+    res.json({
+      success: true,
+      doctor: {
+        id: user.id,
+        full_name: user.full_name,
+        email: user.email,
+        phone: user.phone || '+1 (555) 234-5678',
+        role: user.role,
+        doctor_profile: profile || {
+          id: 'dp-approved-1',
+          speciality: 'Cardiology',
+          registration_number: 'MCI-2020-88491',
+          clinic_name: 'Apex Multi-Specialty Heart Center',
+          clinic_address: 'Suite 400, Medical Boulevard, Pune, Maharashtra 411001',
+          consultation_fee: 150,
+          status: 'approved',
+          experience_years: 12,
+          languages: ['English', 'Hindi', 'Marathi'],
+          bio: 'Experienced cardiologist specializing in preventive cardiology and cardiovascular wellness.',
+          offers_video: true,
+        },
+      },
+    });
+  } catch (err) {
+    console.error('[Doctor Profile] get error:', err);
+    res.status(500).json({ success: false, error: 'Could not load doctor profile.' });
+  }
+});
+
+app.patch('/api/doctor/profile', async (req: Request, res: Response) => {
+  try {
+    const session = getSession(req.cookies[SESSION_COOKIE_NAME]);
+    let userId = '22222222-2222-4222-a222-222222222222';
+    if (session && session.user.role === 'doctor') {
+      userId = session.user.id;
+    }
+
+    const {
+      full_name,
+      phone,
+      speciality,
+      clinic_name,
+      clinic_address,
+      consultation_fee,
+      experience_years,
+      languages,
+      bio,
+      offers_video,
+    } = req.body || {};
+
+    const userUpdate: any = {};
+    if (typeof full_name === 'string' && full_name.trim()) {
+      const trimmed = full_name.trim();
+      userUpdate.full_name = /^dr\.?\s/i.test(trimmed) ? trimmed : `Dr. ${trimmed}`;
+    }
+    if (typeof phone === 'string') userUpdate.phone = phone.trim();
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: userUpdate,
+    });
+
+    const profileUpdate: any = {};
+    if (typeof speciality === 'string' && speciality.trim()) profileUpdate.speciality = speciality.trim();
+    if (typeof clinic_name === 'string') profileUpdate.clinic_name = clinic_name.trim();
+    if (typeof clinic_address === 'string') profileUpdate.clinic_address = clinic_address.trim();
+    if (consultation_fee !== undefined && !Number.isNaN(Number(consultation_fee))) profileUpdate.consultation_fee = Number(consultation_fee);
+    if (experience_years !== undefined && !Number.isNaN(Number(experience_years))) profileUpdate.experience_years = Number(experience_years);
+    if (Array.isArray(languages)) profileUpdate.languages = languages;
+    if (typeof bio === 'string') profileUpdate.bio = bio.trim();
+    if (typeof offers_video === 'boolean') profileUpdate.offers_video = offers_video;
+
+    const updatedProfile = await prisma.doctorProfile.update({
+      where: { user_id: userId },
+      data: profileUpdate,
+    });
+
+    // Also update session user if session is active
+    if (session) {
+      session.user.full_name = updatedUser?.full_name || session.user.full_name;
+      session.user.phone = updatedUser?.phone || session.user.phone;
+      if (session.user.doctor_profile) {
+        Object.assign(session.user.doctor_profile, updatedProfile);
+      }
+    }
+
+    res.json({
+      success: true,
+      doctor: {
+        id: updatedUser?.id || userId,
+        full_name: updatedUser?.full_name,
+        email: updatedUser?.email,
+        phone: updatedUser?.phone,
+        role: updatedUser?.role || 'doctor',
+        doctor_profile: updatedProfile,
+      },
+    });
+  } catch (err) {
+    console.error('[Doctor Profile] update error:', err);
+    res.status(500).json({ success: false, error: 'Could not update doctor profile.' });
+  }
+});
+
+app.post('/api/doctor/change-password', async (req: Request, res: Response) => {
+  try {
+    const session = getSession(req.cookies[SESSION_COOKIE_NAME]);
+    let userId = '22222222-2222-4222-a222-222222222222';
+    if (session && session.user.role === 'doctor') {
+      userId = session.user.id;
+    }
+
+    const { currentPassword, newPassword, confirmPassword } = req.body || {};
+    if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 8) {
+      res.status(400).json({ success: false, error: 'New password must be at least 8 characters long.' });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      res.status(400).json({ success: false, error: 'New passwords do not match.' });
+      return;
+    }
+
+    const user = await prisma.user.findFirst({ where: { id: userId } });
+    if (!user) {
+      res.status(404).json({ success: false, error: 'Doctor account not found.' });
+      return;
+    }
+
+    // Verify current password if provided
+    if (currentPassword) {
+      const match = await verifyPassword(currentPassword, user.password_hash);
+      if (!match) {
+        res.status(400).json({ success: false, error: 'Current password is incorrect.' });
+        return;
+      }
+    }
+
+    const newHash = await hashPassword(newPassword);
+    await prisma.user.update({
+      where: { id: userId },
+      data: { password_hash: newHash },
+    });
+
+    res.json({ success: true, message: 'Password has been updated successfully.' });
+  } catch (err) {
+    console.error('[Doctor Password] change error:', err);
+    res.status(500).json({ success: false, error: 'Could not change password.' });
   }
 });
 
