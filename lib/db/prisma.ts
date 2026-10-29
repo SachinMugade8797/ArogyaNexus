@@ -119,12 +119,57 @@ interface LocalDB {
     relation: string;
     seed_key?: string | null;
     allergies?: string[];
+    notes?: string | null;
     dob?: string | null;
     gender?: string | null;
     blood_group?: string | null;
     emergency_name?: string | null;
     emergency_phone?: string | null;
     emergency_relation?: string | null;
+  }>;
+  vital_readings?: Array<{
+    id: string;
+    patient_id: string;
+    type: string;
+    value: number;
+    unit: string;
+    measured_at: string;
+    source: string;
+    created_at: string;
+  }>;
+  patient_conditions?: Array<{
+    id: string;
+    patient_id: string;
+    name: string;
+    status: string;
+    since: string | null;
+    notes?: string | null;
+    created_at: string;
+  }>;
+  health_records?: Array<{
+    id: string;
+    patient_id: string;
+    category: string;
+    title: string;
+    issuer: string;
+    record_date: string;
+    doctor_id: string | null;
+    uploaded_by: string;
+    source: string;
+    file_key: string;
+    file_name: string;
+    mime_type: string;
+    size_bytes: number;
+    deleted_at: string | null;
+    created_at: string;
+  }>;
+  access_logs?: Array<{
+    id: string;
+    patient_id: string;
+    doctor_id: string;
+    action: string;
+    record_title?: string | null;
+    created_at: string;
   }>;
 }
 
@@ -135,6 +180,10 @@ function loadLocalDB(): LocalDB {
       const db = JSON.parse(data) as LocalDB;
       db.appointments ||= [];
       db.profiles ||= [];
+      db.vital_readings ||= [];
+      db.patient_conditions ||= [];
+      db.health_records ||= [];
+      db.access_logs ||= [];
       return db;
     } catch {
       // Fall through to initial seed
@@ -729,6 +778,223 @@ const fallbackProfile = {
     saveLocalDB(db);
     return newProfile;
   },
+  async update(args: any) {
+    const db = loadLocalDB();
+    db.profiles ||= [];
+    const index = db.profiles.findIndex((p: any) => p.id === args.where?.id);
+    if (index >= 0) {
+      db.profiles[index] = {
+        ...db.profiles[index],
+        ...args.data,
+        updated_at: new Date().toISOString(),
+      };
+      saveLocalDB(db);
+      return db.profiles[index];
+    }
+    return args.data;
+  },
+};
+
+const fallbackVitalReading = {
+  async findMany(args: any = {}) {
+    const db = loadLocalDB();
+    let res = [...(db.vital_readings || [])];
+    if (args?.where) {
+      if (args.where.patient_id) res = res.filter((v: any) => v.patient_id === args.where.patient_id);
+      if (args.where.type) res = res.filter((v: any) => v.type === args.where.type);
+      if (args.where.measured_at?.gte) {
+        const gteTime = new Date(args.where.measured_at.gte).getTime();
+        res = res.filter((v: any) => new Date(v.measured_at).getTime() >= gteTime);
+      }
+    }
+    if (args?.orderBy?.measured_at === 'desc') {
+      res.sort((a: any, b: any) => new Date(b.measured_at).getTime() - new Date(a.measured_at).getTime());
+    } else {
+      res.sort((a: any, b: any) => new Date(a.measured_at).getTime() - new Date(b.measured_at).getTime());
+    }
+    return res;
+  },
+  async create(args: any) {
+    const db = loadLocalDB();
+    db.vital_readings ||= [];
+    const newVital = {
+      id: crypto.randomUUID(),
+      patient_id: args.data.patient_id,
+      type: args.data.type,
+      value: args.data.value,
+      unit: args.data.unit,
+      measured_at: args.data.measured_at ? new Date(args.data.measured_at).toISOString() : new Date().toISOString(),
+      source: args.data.source || 'SELF',
+      created_at: new Date().toISOString(),
+    };
+    db.vital_readings.push(newVital);
+    saveLocalDB(db);
+    return newVital;
+  },
+  async delete(args: any) {
+    const db = loadLocalDB();
+    db.vital_readings ||= [];
+    const index = db.vital_readings.findIndex((v: any) => v.id === args.where?.id);
+    if (index >= 0) {
+      const removed = db.vital_readings.splice(index, 1)[0];
+      saveLocalDB(db);
+      return removed;
+    }
+    return { id: args.where?.id };
+  },
+};
+
+const fallbackPatientCondition = {
+  async findMany(args: any = {}) {
+    const db = loadLocalDB();
+    let res = [...(db.patient_conditions || [])];
+    if (args?.where?.patient_id) {
+      res = res.filter((c: any) => c.patient_id === args.where.patient_id);
+    }
+    return res;
+  },
+  async create(args: any) {
+    const db = loadLocalDB();
+    db.patient_conditions ||= [];
+    const newCondition = {
+      id: crypto.randomUUID(),
+      patient_id: args.data.patient_id,
+      name: args.data.name,
+      status: args.data.status || 'ACTIVE',
+      since: args.data.since ? new Date(args.data.since).toISOString() : null,
+      notes: args.data.notes || null,
+      created_at: new Date().toISOString(),
+    };
+    db.patient_conditions.push(newCondition);
+    saveLocalDB(db);
+    return newCondition;
+  },
+  async deleteMany(args: any = {}) {
+    const db = loadLocalDB();
+    db.patient_conditions ||= [];
+    if (args?.where?.patient_id) {
+      db.patient_conditions = db.patient_conditions.filter((c: any) => c.patient_id !== args.where.patient_id);
+      saveLocalDB(db);
+    }
+    return { count: 1 };
+  },
+  async update(args: any) {
+    const db = loadLocalDB();
+    db.patient_conditions ||= [];
+    const index = db.patient_conditions.findIndex((c: any) => c.id === args.where?.id);
+    if (index >= 0) {
+      db.patient_conditions[index] = { ...db.patient_conditions[index], ...args.data };
+      saveLocalDB(db);
+      return db.patient_conditions[index];
+    }
+    return args.data;
+  },
+};
+
+const fallbackHealthRecord = {
+  async findMany(args: any = {}) {
+    const db = loadLocalDB();
+    let list = [...(db.health_records || [])];
+    if (args?.where) {
+      if (args.where.patient_id) list = list.filter((r: any) => r.patient_id === args.where.patient_id);
+      if (args.where.deleted_at === null) list = list.filter((r: any) => !r.deleted_at);
+      if (args.where.category) list = list.filter((r: any) => r.category === args.where.category);
+      if (args.where.record_date?.gte) {
+        const gteTime = new Date(args.where.record_date.gte).getTime();
+        list = list.filter((r: any) => new Date(r.record_date).getTime() >= gteTime);
+      }
+      if (args.where.record_date?.lte) {
+        const lteTime = new Date(args.where.record_date.lte).getTime();
+        list = list.filter((r: any) => new Date(r.record_date).getTime() <= lteTime);
+      }
+      if (args.where.OR && Array.isArray(args.where.OR)) {
+        const q = (args.where.OR[0]?.title?.contains || '').toLowerCase();
+        if (q) {
+          list = list.filter((r: any) => (r.title || '').toLowerCase().includes(q) || (r.issuer || '').toLowerCase().includes(q));
+        }
+      }
+    }
+    list.sort((a: any, b: any) => new Date(b.record_date || b.created_at).getTime() - new Date(a.record_date || a.created_at).getTime());
+
+    if (args?.include?.doctor) {
+      list = list.map((r: any) => {
+        let doctor = null;
+        if (r.doctor_id) {
+          const doc = (db.doctor_profiles || []).find((d: any) => d.id === r.doctor_id);
+          if (doc) {
+            const user = (db.users || []).find((u: any) => u.id === doc.user_id);
+            doctor = { ...doc, user: { full_name: user?.full_name || 'Dr. Doctor' } };
+          }
+        }
+        return { ...r, doctor };
+      });
+    }
+
+    const skip = args?.skip || 0;
+    const take = args?.take !== undefined ? args.take : list.length;
+    return list.slice(skip, skip + take);
+  },
+  async findFirst(args: any = {}) {
+    const list = await fallbackHealthRecord.findMany({ ...args, skip: 0, take: 1 });
+    return list[0] || null;
+  },
+  async count(args: any = {}) {
+    const list = await fallbackHealthRecord.findMany({ where: args.where });
+    return list.length;
+  },
+  async create(args: any) {
+    const db = loadLocalDB();
+    db.health_records ||= [];
+    const newRecord = {
+      id: crypto.randomUUID(),
+      patient_id: args.data.patient_id,
+      category: args.data.category,
+      title: args.data.title,
+      issuer: args.data.issuer,
+      record_date: args.data.record_date ? new Date(args.data.record_date).toISOString() : new Date().toISOString(),
+      doctor_id: args.data.doctor_id || null,
+      uploaded_by: args.data.uploaded_by,
+      source: args.data.source || 'PATIENT_UPLOAD',
+      file_key: args.data.file_key,
+      file_name: args.data.file_name,
+      mime_type: args.data.mime_type,
+      size_bytes: args.data.size_bytes || 0,
+      deleted_at: null,
+      created_at: new Date().toISOString(),
+    };
+    db.health_records.push(newRecord);
+    saveLocalDB(db);
+    return newRecord;
+  },
+  async update(args: any) {
+    const db = loadLocalDB();
+    db.health_records ||= [];
+    const index = db.health_records.findIndex((r: any) => r.id === args.where?.id);
+    if (index >= 0) {
+      db.health_records[index] = {
+        ...db.health_records[index],
+        ...args.data,
+      };
+      saveLocalDB(db);
+      return db.health_records[index];
+    }
+    return args.data;
+  },
+};
+
+const fallbackAccessLog = {
+  async findMany(args: any = {}) {
+    const db = loadLocalDB();
+    return db.access_logs || [];
+  },
+  async create(args: any) {
+    const db = loadLocalDB();
+    db.access_logs ||= [];
+    const log = { id: crypto.randomUUID(), ...args.data, created_at: new Date().toISOString() };
+    db.access_logs.push(log);
+    saveLocalDB(db);
+    return log;
+  },
 };
 
 // ----------------------------------------------------------------------------
@@ -1090,9 +1356,19 @@ export const prisma = {
     async update(args: any) {
       const running = await isPostgresRunning();
       if (!running) {
-        return args.data;
+        logFallbackNotice();
+        return await fallbackProfile.update(args);
       }
-      return await (rawPrisma as any).profile.update(args);
+      try {
+        return await (rawPrisma as any).profile.update(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          logFallbackNotice();
+          return await fallbackProfile.update(args);
+        }
+        throw err;
+      }
     },
   },
   profileAccess: {
@@ -1115,24 +1391,194 @@ export const prisma = {
     async findMany(args: any) { return await (rawPrisma as any).visitRecord.findMany(args); },
   },
   healthRecord: {
-    async findMany(args: any) { return await (rawPrisma as any).healthRecord.findMany(args); },
-    async findFirst(args: any) { return await (rawPrisma as any).healthRecord.findFirst(args); },
-    async create(args: any) { return await (rawPrisma as any).healthRecord.create(args); },
-    async update(args: any) { return await (rawPrisma as any).healthRecord.update(args); },
-    async count(args: any) { return await (rawPrisma as any).healthRecord.count(args); },
+    async findMany(args: any) {
+      const running = await isPostgresRunning();
+      if (!running) return await fallbackHealthRecord.findMany(args);
+      try {
+        return await (rawPrisma as any).healthRecord.findMany(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          return await fallbackHealthRecord.findMany(args);
+        }
+        throw err;
+      }
+    },
+    async findFirst(args: any) {
+      const running = await isPostgresRunning();
+      if (!running) return await fallbackHealthRecord.findFirst(args);
+      try {
+        return await (rawPrisma as any).healthRecord.findFirst(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          return await fallbackHealthRecord.findFirst(args);
+        }
+        throw err;
+      }
+    },
+    async create(args: any) {
+      const running = await isPostgresRunning();
+      if (!running) return await fallbackHealthRecord.create(args);
+      try {
+        return await (rawPrisma as any).healthRecord.create(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          return await fallbackHealthRecord.create(args);
+        }
+        throw err;
+      }
+    },
+    async update(args: any) {
+      const running = await isPostgresRunning();
+      if (!running) return await fallbackHealthRecord.update(args);
+      try {
+        return await (rawPrisma as any).healthRecord.update(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          return await fallbackHealthRecord.update(args);
+        }
+        throw err;
+      }
+    },
+    async count(args: any) {
+      const running = await isPostgresRunning();
+      if (!running) return await fallbackHealthRecord.count(args);
+      try {
+        return await (rawPrisma as any).healthRecord.count(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          return await fallbackHealthRecord.count(args);
+        }
+        throw err;
+      }
+    },
   },
   vitalReading: {
-    async findMany(args: any) { return await (rawPrisma as any).vitalReading.findMany(args); },
-    async create(args: any) { return await (rawPrisma as any).vitalReading.create(args); },
+    async findMany(args: any) {
+      const running = await isPostgresRunning();
+      if (!running) return await fallbackVitalReading.findMany(args);
+      try {
+        return await (rawPrisma as any).vitalReading.findMany(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          return await fallbackVitalReading.findMany(args);
+        }
+        throw err;
+      }
+    },
+    async create(args: any) {
+      const running = await isPostgresRunning();
+      if (!running) return await fallbackVitalReading.create(args);
+      try {
+        return await (rawPrisma as any).vitalReading.create(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          return await fallbackVitalReading.create(args);
+        }
+        throw err;
+      }
+    },
+    async delete(args: any) {
+      const running = await isPostgresRunning();
+      if (!running) return await fallbackVitalReading.delete(args);
+      try {
+        return await (rawPrisma as any).vitalReading.delete(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          return await fallbackVitalReading.delete(args);
+        }
+        throw err;
+      }
+    },
   },
   patientCondition: {
-    async findMany(args: any) { return await (rawPrisma as any).patientCondition.findMany(args); },
-    async create(args: any) { return await (rawPrisma as any).patientCondition.create(args); },
-    async update(args: any) { return await (rawPrisma as any).patientCondition.update(args); },
-    async deleteMany(args: any) { return await (rawPrisma as any).patientCondition.deleteMany(args); },
+    async findMany(args: any) {
+      const running = await isPostgresRunning();
+      if (!running) return await fallbackPatientCondition.findMany(args);
+      try {
+        return await (rawPrisma as any).patientCondition.findMany(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          return await fallbackPatientCondition.findMany(args);
+        }
+        throw err;
+      }
+    },
+    async create(args: any) {
+      const running = await isPostgresRunning();
+      if (!running) return await fallbackPatientCondition.create(args);
+      try {
+        return await (rawPrisma as any).patientCondition.create(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          return await fallbackPatientCondition.create(args);
+        }
+        throw err;
+      }
+    },
+    async update(args: any) {
+      const running = await isPostgresRunning();
+      if (!running) return await fallbackPatientCondition.update(args);
+      try {
+        return await (rawPrisma as any).patientCondition.update(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          return await fallbackPatientCondition.update(args);
+        }
+        throw err;
+      }
+    },
+    async deleteMany(args: any) {
+      const running = await isPostgresRunning();
+      if (!running) return await fallbackPatientCondition.deleteMany(args);
+      try {
+        return await (rawPrisma as any).patientCondition.deleteMany(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          return await fallbackPatientCondition.deleteMany(args);
+        }
+        throw err;
+      }
+    },
   },
   accessLog: {
-    async findMany(args: any) { return await (rawPrisma as any).accessLog.findMany(args); },
+    async findMany(args: any) {
+      const running = await isPostgresRunning();
+      if (!running) return await fallbackAccessLog.findMany(args);
+      try {
+        return await (rawPrisma as any).accessLog.findMany(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          return await fallbackAccessLog.findMany(args);
+        }
+        throw err;
+      }
+    },
+    async create(args: any) {
+      const running = await isPostgresRunning();
+      if (!running) return await fallbackAccessLog.create(args);
+      try {
+        return await (rawPrisma as any).accessLog.create(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          return await fallbackAccessLog.create(args);
+        }
+        throw err;
+      }
+    },
   },
 
   async $transaction(callbackOrPromises: any) {
