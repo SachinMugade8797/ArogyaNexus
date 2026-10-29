@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   Activity, LayoutDashboard, LogOut, X, CalendarDays, Users, Clock3, FileText,
-  Pill, LockKeyhole, MessageCircle, Settings, Search, PlusCircle, Bell, MapPin,
+  MessageCircle, Settings, Search, PlusCircle, Bell, MapPin,
   ChevronLeft, ChevronRight, ChevronRight as ArrowRight, ChevronDown, Star,
   ClipboardList, FlaskConical, Stethoscope, CheckCircle2, CircleX, Send,
   Bot, MoreVertical, CalendarCheck, Sparkles, ShieldCheck, UserCheck, UserX,
@@ -10,6 +10,7 @@ import {
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { getCurrentUser, logoutUser } from '../services/auth/authService';
 import '../styles/dashboard.css';
+import DoctorSidebar from '../components/doctor/DoctorSidebar';
 
 const dashboardPaths = {
   patient: '/patient/dashboard',
@@ -125,28 +126,7 @@ export default function DashboardPage({ role }) {
 
     return (
       <div className="doctor-dashboard">
-        <aside className="doctor-sidebar" aria-label="Doctor navigation">
-          <Link className="doctor-brand" to="/doctor/dashboard" aria-label="ArogyaNexus dashboard">
-            <span className="doctor-brand-icon"><Activity size={25} /></span>
-            <span>AROGYA<span>NEXUS</span></span>
-          </Link>
-          <nav className="doctor-nav">
-            {[
-              [LayoutDashboard, 'Dashboard'], [CalendarDays, 'Appointments'], [Users, 'Patients'],
-              [Clock3, 'Availability'], [FileText, 'Medical Records'], [Pill, 'Prescriptions'],
-              [LockKeyhole, 'Access Requests'], [MessageCircle, 'Messages'], [Settings, 'Settings'],
-            ].map(([Icon, label], index) => (
-              <button className={`doctor-nav-link${index === 0 ? ' is-active' : ''}`} key={label} type="button">
-                <Icon size={19} /><span>{label}</span>{label === 'Messages' && <span className="doctor-nav-badge">1</span>}
-              </button>
-            ))}
-          </nav>
-          <div className="doctor-mobile-promo"><strong>ArogyaNexus Mobile</strong><span>Access patients on the go.</span><span className="doctor-store-badges">App Store　 Google Play</span></div>
-          <div className="doctor-sidebar-bottom">
-            <div className="doctor-mini-profile"><span className="doctor-avatar">{user.full_name?.charAt(0) || 'D'}</span><span><strong>{user.full_name}</strong><small>Cardiologist</small></span></div>
-            <button className="doctor-logout" type="button" onClick={() => setShowLogoutDialog(true)}><LogOut size={17} /> Log out</button>
-          </div>
-        </aside>
+        <DoctorSidebar user={user} onLogout={() => setShowLogoutDialog(true)} />
 
         <main className="doctor-workspace">
           <header className="doctor-topbar">
