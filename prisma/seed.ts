@@ -1,7 +1,5 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
-import fs from 'fs';
-import path from 'path';
 
 const prisma = new PrismaClient();
 const BCRYPT_SALT_ROUNDS = 12;
@@ -139,62 +137,7 @@ async function main() {
   });
 
   console.log(`[ArogyaNexus Seed] Seeded Patient: ${patient.email} (Profiles: SELF, MOTHER, SON)`);
-
-  // 5. Update .local_db.json fallback file to maintain exact consistency
-  const localDbPath = path.resolve(process.cwd(), '.local_db.json');
-  const localDbData = {
-    users: [
-      {
-        id: admin.id,
-        full_name: admin.full_name,
-        email: admin.email,
-        password_hash: passwordHash,
-        phone: admin.phone,
-        role: admin.role,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-      {
-        id: doctorUser.id,
-        full_name: doctorUser.full_name,
-        email: doctorUser.email,
-        password_hash: passwordHash,
-        phone: doctorUser.phone,
-        role: doctorUser.role,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-      {
-        id: patient.id,
-        full_name: patient.full_name,
-        email: patient.email,
-        password_hash: passwordHash,
-        phone: patient.phone,
-        role: patient.role,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-    ],
-    doctor_profiles: [
-      {
-        id: doctorProfile.id,
-        user_id: doctorUser.id,
-        speciality: doctorProfile.speciality,
-        registration_number: doctorProfile.registration_number,
-        clinic_name: doctorProfile.clinic_name,
-        clinic_address: doctorProfile.clinic_address,
-        consultation_fee: Number(doctorProfile.consultation_fee),
-        status: doctorProfile.status,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-    ],
-    appointments: [],
-  };
-
-  fs.writeFileSync(localDbPath, JSON.stringify(localDbData, null, 2), 'utf-8');
-  console.log('[ArogyaNexus Seed] Synchronized fallback .local_db.json.');
-  console.log('[ArogyaNexus Seed] Seeding completed successfully!');
+  console.log('[ArogyaNexus Seed] PostgreSQL seeding completed successfully!');
 }
 
 main()
