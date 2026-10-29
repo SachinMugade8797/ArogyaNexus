@@ -60,6 +60,17 @@ export default function DoctorAppointments({ comingSoon = false }) {
   }, [tab, query, filter]);
   useEffect(() => { let active = true; getCurrentUser().then((current) => { if (active) { setUser(current); setLoadedUser(true); } }); return () => { active = false; }; }, []);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const handleSync = () => { load(); };
+    window.addEventListener('storage', handleSync);
+    window.addEventListener('arogyanexus:appointment_booked', handleSync);
+    const interval = setInterval(load, 8000);
+    return () => {
+      window.removeEventListener('storage', handleSync);
+      window.removeEventListener('arogyanexus:appointment_booked', handleSync);
+      clearInterval(interval);
+    };
+  }, [load]);
   useEffect(() => { const id = setInterval(() => setClock(new Date()), 60000); return () => clearInterval(id); }, []);
   const dialogType = dialog?.type;
   useEffect(() => { if (dialogType && ['create', 'propose'].includes(dialogType) && form.date) getDoctorSlots(form.date).then(setSlots); }, [dialogType, form.date]);

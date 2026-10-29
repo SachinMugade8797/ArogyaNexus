@@ -22,7 +22,36 @@ const dateKey = (date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kol
 const nextToken = (startsAt) => Math.max(0, ...appointmentStore.filter((appointment) => dateKey(appointment.startsAt) === dateKey(startsAt)).map((appointment) => Number(appointment.tokenNumber) || 0)) + 1;
 const failResult = (code, message) => ({ code, message });
 
+export async function syncLiveAppointments() {
+  try {
+    const res = await fetch('/api/doctor/appointments', { credentials: 'include' });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && Array.isArray(data.appointments)) {
+        for (const liveApt of data.appointments) {
+          const existingIdx = appointmentStore.findIndex((a) => a.id === liveApt.id);
+          if (existingIdx >= 0) {
+            appointmentStore[existingIdx] = {
+              ...appointmentStore[existingIdx],
+              ...liveApt,
+              status: liveApt.status || appointmentStore[existingIdx].status,
+            };
+          } else {
+            appointmentStore.unshift({
+              tokenNumber: nextToken(liveApt.startsAt),
+              ...liveApt,
+            });
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[DoctorAppointments] Live sync error:', err);
+  }
+}
+
 export async function getDoctorAppointments({ tab = 'today', q = '', filter = 'All' } = {}) {
+  await syncLiveAppointments();
   await delay();
   const params = new URLSearchParams(globalThis.window?.location?.search || '');
   if (params.get('mock') === 'error') throw new Error('Could not load appointments.');
@@ -46,6 +75,7 @@ export async function getDoctorAppointments({ tab = 'today', q = '', filter = 'A
 export async function getAppointment(id) { await delay(); return clone(getById(id) || null); }
 
 export async function getDoctorAppointmentCounts() {
+  await syncLiveAppointments();
   await delay();
   const todayKey = dateKey(new Date());
   return {
@@ -63,6 +93,14 @@ export async function updateAppointmentStatus(id, nextStatus, payload = {}) {
   Object.assign(appointment, payload, { status: nextStatus, updatedAt: new Date().toISOString() });
   recordAudit(`STATUS_${nextStatus}`, id);
   if (nextStatus === 'CANCELLED') patientNotifications.push({ patientId: appointment.patient.id, appointmentId: id, type: 'APPOINTMENT_CANCELLED', at: new Date().toISOString(), message: payload.reason || 'Your appointment request was declined.' });
+  try {
+    await fetch(`/api/doctor/appointments/${id}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ nextStatus }),
+    });
+  } catch {}
   return clone(appointment);
 }
 
@@ -110,6 +148,14 @@ export async function respondToRequest(id, response, payload = {}) {
     appointment.status = 'CONFIRMED';
     appointment.tokenNumber = nextToken(appointment.startsAt);
     recordAudit('REQUEST_ACCEPTED', id);
+    try {
+      await fetch(`/api/doctor/appointments/${id}/respond`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ response: 'ACCEPT' }),
+      });
+    } catch {}
   } else if (response === 'DECLINE') {
     if (!payload.reason?.trim() || payload.reason.trim().length < 5) return failResult('INVALID_REASON', 'Please enter a reason with at least 5 characters.');
     appointment.status = 'CANCELLED';
@@ -117,11 +163,27 @@ export async function respondToRequest(id, response, payload = {}) {
     appointment.cancellationReason = payload.reason.trim();
     patientNotifications.push({ patientId: appointment.patient.id, appointmentId: id, type: 'APPOINTMENT_DECLINED', reason: appointment.cancellationReason, at: new Date().toISOString() });
     recordAudit('REQUEST_DECLINED', id);
+    try {
+      await fetch(`/api/doctor/appointments/${id}/respond`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ response: 'DECLINE', reason: payload.reason.trim() }),
+      });
+    } catch {}
   } else if (response === 'PROPOSE') {
     if (!payload.proposedStartsAt || new Date(payload.proposedStartsAt) <= new Date()) return failResult('INVALID_SLOT', 'Choose a future appointment time.');
     appointment.status = 'PROPOSED_NEW_TIME';
     appointment.proposedSlot = { startsAt: new Date(payload.proposedStartsAt).toISOString(), note: payload.note?.trim() || '' };
     recordAudit('REQUEST_TIME_PROPOSED', id);
+    try {
+      await fetch(`/api/doctor/appointments/${id}/respond`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ response: 'PROPOSE', proposedStartsAt: payload.proposedStartsAt, note: payload.note }),
+      });
+    } catch {}
   } else return failResult('INVALID_RESPONSE', 'Unknown response.');
   appointment.updatedAt = new Date().toISOString();
   return clone(appointment);

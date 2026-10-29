@@ -146,23 +146,35 @@ export async function createAppointmentRequest(appointment) {
         doctorId: appointment.doctor_profile_id,
         appointmentAt: appointment.appointment_at,
         reason: appointment.reason,
+        profileId: appointment.patient_id || 'me',
       }),
     });
-    if (response.ok) {
-      const data = await response.json();
-      if (data.success && data.appointment) {
-        return {
+    const data = await response.json().catch(() => ({}));
+    if (response.ok && data.success && data.appointment) {
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem('arogyanexus.last_booked', JSON.stringify({
           id: data.appointment.id,
-          patient_id: appointment.patient_id,
-          doctor_profile_id: appointment.doctor_profile_id,
-          appointment_at: data.appointment.appointmentAt || appointment.appointment_at,
-          reason: appointment.reason || null,
-          status: data.appointment.status || 'pending',
-          created_at: new Date().toISOString(),
-        };
+          time: Date.now(),
+        }));
+        window.dispatchEvent(new CustomEvent('arogyanexus:appointment_booked', { detail: data.appointment }));
       }
+      return {
+        id: data.appointment.id,
+        patient_id: appointment.patient_id,
+        doctor_profile_id: appointment.doctor_profile_id,
+        appointment_at: data.appointment.appointmentAt || appointment.appointment_at,
+        reason: appointment.reason || null,
+        status: data.appointment.status || 'pending',
+        created_at: new Date().toISOString(),
+      };
+    }
+    if (!response.ok && data.error) {
+      throw new Error(data.error);
     }
   } catch (err) {
+    if (err.message && !err.message.includes('fetch')) {
+      throw err;
+    }
     console.warn('[API appointments] Backend booking failed, falling back to local simulated response:', err);
   }
 
