@@ -28,20 +28,12 @@ export async function syncLiveAppointments() {
     if (res.ok) {
       const data = await res.json();
       if (data.success && Array.isArray(data.appointments)) {
+        appointmentStore.length = 0;
         for (const liveApt of data.appointments) {
-          const existingIdx = appointmentStore.findIndex((a) => a.id === liveApt.id);
-          if (existingIdx >= 0) {
-            appointmentStore[existingIdx] = {
-              ...appointmentStore[existingIdx],
-              ...liveApt,
-              status: liveApt.status || appointmentStore[existingIdx].status,
-            };
-          } else {
-            appointmentStore.unshift({
-              tokenNumber: nextToken(liveApt.startsAt),
-              ...liveApt,
-            });
-          }
+          appointmentStore.push({
+            tokenNumber: Number(liveApt.tokenNumber) || nextToken(liveApt.startsAt),
+            ...liveApt,
+          });
         }
       }
     }
@@ -59,14 +51,23 @@ export async function getDoctorAppointments({ tab = 'today', q = '', filter = 'A
   const todayKey = dateKey(new Date());
   const visible = appointmentStore.filter((appointment) => {
     const appointmentDay = dateKey(appointment.startsAt);
-    if (tab === 'today' && (appointmentDay !== todayKey || ['CANCELLED', 'REQUESTED', 'PROPOSED_NEW_TIME'].includes(appointment.status) || (appointment.status === 'COMPLETED' && filter !== 'Completed'))) return false;
-    if (tab === 'upcoming' && (appointmentDay === todayKey || ['REQUESTED', 'PROPOSED_NEW_TIME', 'CANCELLED'].includes(appointment.status))) return false;
-    if (tab === 'requests' && !['REQUESTED', 'PROPOSED_NEW_TIME'].includes(appointment.status)) return false;
+    if (tab === 'today') {
+      if (appointmentDay !== todayKey) return false;
+      if (['CANCELLED', 'REQUESTED', 'PROPOSED_NEW_TIME'].includes(appointment.status)) return false;
+      if (appointment.status === 'COMPLETED' && filter !== 'Completed') return false;
+    }
+    if (tab === 'upcoming') {
+      if (appointmentDay <= todayKey) return false;
+      if (['REQUESTED', 'PROPOSED_NEW_TIME', 'CANCELLED'].includes(appointment.status)) return false;
+    }
+    if (tab === 'requests') {
+      if (!['REQUESTED', 'PROPOSED_NEW_TIME'].includes(appointment.status)) return false;
+    }
     if (filter !== 'All') {
       const filterValue = filter.toLowerCase().replace('in-person', 'in_person').replace('video call', 'video').replace('in waiting', 'waiting').replace('missed', 'missed');
       if (!`${appointment.mode} ${appointment.status}`.toLowerCase().includes(filterValue)) return false;
     }
-    return `${appointment.patient.name} ${appointment.reason} ${appointment.status} ${appointment.mode}`.toLowerCase().includes(q.toLowerCase());
+    return `${appointment.patient?.name || ''} ${appointment.reason || ''} ${appointment.status || ''} ${appointment.mode || ''}`.toLowerCase().includes(q.toLowerCase());
   });
   visible.sort((a, b) => tab === 'requests' ? new Date(a.createdAt) - new Date(b.createdAt) : tab === 'today' ? (a.status === 'WAITING' ? -1 : b.status === 'WAITING' ? 1 : a.tokenNumber - b.tokenNumber) : new Date(a.startsAt) - new Date(b.startsAt));
   return clone(visible);
@@ -80,7 +81,7 @@ export async function getDoctorAppointmentCounts() {
   const todayKey = dateKey(new Date());
   return {
     today: appointmentStore.filter((appointment) => dateKey(appointment.startsAt) === todayKey && !['CANCELLED', 'REQUESTED', 'PROPOSED_NEW_TIME', 'COMPLETED'].includes(appointment.status)).length,
-    upcoming: appointmentStore.filter((appointment) => dateKey(appointment.startsAt) !== todayKey && !['REQUESTED', 'PROPOSED_NEW_TIME', 'CANCELLED'].includes(appointment.status)).length,
+    upcoming: appointmentStore.filter((appointment) => dateKey(appointment.startsAt) > todayKey && !['REQUESTED', 'PROPOSED_NEW_TIME', 'CANCELLED'].includes(appointment.status)).length,
     requests: appointmentStore.filter((appointment) => ['REQUESTED', 'PROPOSED_NEW_TIME'].includes(appointment.status)).length,
   };
 }
@@ -216,13 +217,11 @@ export async function createAppointment(data) {
   return clone(appointment);
 }
 
-const treatedPatients = Array.from({ length: 20 }, (_, index) => {
-  const source = appointmentStore[index % appointmentStore.length].patient;
-  return { ...clone(source), id: `${source.id}-treated-${index}`, name: index < appointmentStore.length ? source.name : `Patient ${index + 1}`, lastVisit: new Date(Date.now() - (index + 1) * 86400000).toISOString() };
-});
 export async function searchMyPatients(q = '') {
   await delay();
-  return clone(treatedPatients.filter((patient) => patient.name.toLowerCase().includes(q.trim().toLowerCase())).slice(0, 8));
+  const treated = appointmentStore.map((item) => item.patient).filter(Boolean);
+  const unique = Array.from(new Map(treated.map((p) => [p.name, p])).values());
+  return clone(unique.filter((patient) => patient.name.toLowerCase().includes(q.trim().toLowerCase())).slice(0, 8));
 }
 
 export async function invitePatientByPhone(phone, name) {

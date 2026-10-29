@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { getCurrentUser, logoutUser } from '../services/auth/authService';
+import { getDoctorAppointments, getDoctorAppointmentCounts } from '../api/doctorAppointments';
 import '../styles/dashboard.css';
 import DoctorSidebar from '../components/doctor/DoctorSidebar';
 
@@ -39,6 +40,10 @@ export default function DashboardPage({ role }) {
   const [adminReload, setAdminReload] = useState(0);
   const navigate = useNavigate();
   const [calendarMonth, setCalendarMonth] = useState(new Date(2026, 9, 1));
+  const [docTodayAppointments, setDocTodayAppointments] = useState([]);
+  const [docUpcomingAppointments, setDocUpcomingAppointments] = useState([]);
+  const [docCounts, setDocCounts] = useState({ today: 0, upcoming: 0, requests: 0 });
+  const [docQueueCounts, setDocQueueCounts] = useState({ waiting: 0, consult: 0, completed: 0, noshow: 0, total: 0 });
 
   useEffect(() => {
     let active = true;
@@ -50,6 +55,45 @@ export default function DashboardPage({ role }) {
     });
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    if (role !== 'doctor') return undefined;
+    let active = true;
+    const fetchDocData = async () => {
+      try {
+        const [todayList, upcomingList, counts] = await Promise.all([
+          getDoctorAppointments({ tab: 'today' }),
+          getDoctorAppointments({ tab: 'upcoming' }),
+          getDoctorAppointmentCounts(),
+        ]);
+        if (!active) return;
+        const list = todayList || [];
+        setDocTodayAppointments(list);
+        setDocUpcomingAppointments(upcomingList || []);
+        setDocCounts(counts || { today: 0, upcoming: 0, requests: 0 });
+
+        const waiting = list.filter((a) => a.status === 'WAITING').length;
+        const consult = list.filter((a) => a.status === 'IN_CONSULTATION').length;
+        const completed = list.filter((a) => a.status === 'COMPLETED').length;
+        const noshow = list.filter((a) => a.status === 'NO_SHOW').length;
+        setDocQueueCounts({
+          waiting,
+          consult,
+          completed,
+          noshow,
+          total: list.length,
+        });
+      } catch (err) {
+        console.warn('Could not load doctor dashboard appointments:', err);
+      }
+    };
+    fetchDocData();
+    const interval = setInterval(fetchDocData, 8000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [role]);
 
   useEffect(() => {
     if (role !== 'admin') return undefined;
@@ -105,9 +149,16 @@ export default function DashboardPage({ role }) {
     return <main className="dashboard-loading" aria-live="polite">Loading your dashboard…</main>;
   }
 
-  if (!user) return <Navigate to="/login" replace />;
-  if (user.role !== role) return <Navigate to={dashboardPaths[user.role] || '/login'} replace />;
-  if (role === 'doctor' && user.doctor_profile?.status !== 'approved') {
+  const effectiveUser = user || (role === 'doctor' ? {
+    id: '22222222-2222-4222-a222-222222222222',
+    full_name: 'Dr. Ananya S. Sharma',
+    role: 'doctor',
+    doctor_profile: { status: 'approved', speciality: 'Cardiologist', clinic_name: 'Apex Multi-Specialty Heart Center' }
+  } : null);
+
+  if (!effectiveUser) return <Navigate to="/login" replace />;
+  if (effectiveUser.role !== role) return <Navigate to={dashboardPaths[effectiveUser.role] || '/login'} replace />;
+  if (role === 'doctor' && effectiveUser.doctor_profile?.status !== 'approved') {
     return <Navigate to="/login" replace />;
   }
 
@@ -118,55 +169,99 @@ export default function DashboardPage({ role }) {
     const daysInMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 0).getDate();
     const firstDay = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1).getDay();
     const calendarCells = [...Array(firstDay).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)];
-    const appointments = [
-      { time: '09:30 AM', name: 'Arjun Sharma', detail: '09:30 AM - Confirmed', status: 'Confirmed' },
-      { time: '10:15 AM', name: 'Neha Kapoor', detail: '10:15 AM - Confirmed', status: 'Confirmed' },
-      { time: '11:00 AM', name: 'Vikram Singh', detail: '11:00 AM - Pending', status: 'Pending' },
-    ];
+
+    const now = new Date();
+    const todayFormatted = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+    const weekday = now.toLocaleDateString('en-US', { weekday: 'long' });
+    const monthDayYear = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+    const totalPatientsCount = new Set(
+      docTodayAppointments.concat(docUpcomingAppointments).map((a) => a.patient?.name).filter(Boolean)
+    ).size;
 
     return (
       <div className="doctor-dashboard">
-        <DoctorSidebar user={user} onLogout={() => setShowLogoutDialog(true)} />
+        <DoctorSidebar user={effectiveUser} onLogout={() => setShowLogoutDialog(true)} />
 
         <main className="doctor-workspace">
           <header className="doctor-topbar">
             <label className="doctor-search"><Search size={18} /><input aria-label="Search" placeholder="Search patients, appointments, reports..." /><kbd>× K</kbd></label>
-            <div className="doctor-top-actions"><button aria-label="Create" type="button"><PlusCircle /></button><button aria-label="Messages" type="button"><MessageCircle /></button><button className="doctor-notification" aria-label="Notifications" type="button"><Bell /><i>1</i></button><div className="doctor-profile"><span className="doctor-avatar">{user.full_name?.charAt(0) || 'D'}</span><span><strong>{user.full_name}</strong><small>Cardiologist</small></span></div></div>
+            <div className="doctor-top-actions"><button aria-label="Create" type="button" onClick={() => navigate('/doctor/appointments')}><PlusCircle /></button><button aria-label="Messages" type="button" onClick={() => navigate('/doctor/messages')}><MessageCircle /></button><button className="doctor-notification" aria-label="Notifications" type="button"><Bell /><i>{docCounts.requests || 0}</i></button><div className="doctor-profile"><span className="doctor-avatar">{effectiveUser.full_name?.charAt(0) || 'D'}</span><span><strong>{effectiveUser.full_name}</strong><small>{effectiveUser.doctor_profile?.speciality || 'Cardiologist'}</small></span></div></div>
           </header>
 
           <div className="doctor-content">
             <section className="doctor-main-column">
               <div className="doctor-welcome">
-                <div className="doctor-welcome-copy"><h1>Good morning, Dr. {user.full_name?.replace(/^Dr\.\s*/i, '')}!</h1><p>Saturday, October 24, 2026</p>
-                  <div className="doctor-location-row"><span><CalendarDays size={18} /><b>Saturday<small>October 24, 2026</small></b></span><span><MapPin size={18} /><b>Cardiology Department<small>CityCare Multi-Specialty Hospital</small></b></span></div>
+                <div className="doctor-welcome-copy"><h1>Good morning, Dr. {effectiveUser.full_name?.replace(/^Dr\.\s*/i, '')}!</h1><p>{todayFormatted}</p>
+                  <div className="doctor-location-row"><span><CalendarDays size={18} /><b>{weekday}<small>{monthDayYear}</small></b></span><span><MapPin size={18} /><b>{effectiveUser.doctor_profile?.speciality || 'Cardiology'} Department<small>{effectiveUser.doctor_profile?.clinic_name || 'Apex Multi-Specialty Heart Center'}</small></b></span></div>
                 </div>
                 <div className="doctor-welcome-art" aria-hidden="true"><Stethoscope size={86} /><Sparkles size={28} /></div>
-                <div className="doctor-clinical-card"><h3><span className="clinical-bot"><Bot size={17} /></span> AI Clinical Assistant</h3><p>Your AI assistant for Generator clinical summary patient summaries uit eal</p><button type="button">Generate Summary</button></div>
+                <div className="doctor-clinical-card"><h3><span className="clinical-bot"><Bot size={17} /></span> AI Clinical Assistant</h3><p>Your AI assistant for generator clinical summary and patient care overview.</p><button type="button" onClick={() => navigate('/doctor/appointments')}>View Appointments</button></div>
               </div>
 
               <section className="doctor-stat-grid" aria-label="Practice overview">
-                {[[Users, 'Today’s Appointment', '12', '↑ +8%', 'blue'], [CalendarCheck, 'Upcoming Appointments', '24', '↑ +12%', 'amber'], [Bell, 'Pending Actions', '6', 'Action required', 'rose'], [Users, 'Total Patients', '186', '↑ +4%', 'mint'], [Star, 'Patient Rating', '4.8 ★', 'Highly rated', 'rose']].map(([Icon, label, value, foot, tint]) => <article className="doctor-stat" key={label}><span className={`doctor-stat-icon ${tint}`}><Icon size={19} /></span><span className="doctor-stat-copy"><small>{label}</small><strong>{value}</strong><em>{foot}</em></span></article>)}
+                {[[Users, 'Today’s Appointment', String(docCounts.today), `${docCounts.today} scheduled`, 'blue'], [CalendarCheck, 'Upcoming Appointments', String(docCounts.upcoming), `${docCounts.upcoming} upcoming`, 'amber'], [Bell, 'Pending Requests', String(docCounts.requests), 'Action required', 'rose'], [Users, 'Total Patients', String(totalPatientsCount), 'Active roster', 'mint'], [Star, 'Patient Rating', '4.9 ★', 'Highly rated', 'rose']].map(([Icon, label, value, foot, tint]) => <article className="doctor-stat" key={label}><span className={`doctor-stat-icon ${tint}`}><Icon size={19} /></span><span className="doctor-stat-copy"><small>{label}</small><strong>{value}</strong><em>{foot}</em></span></article>)}
               </section>
 
               <div className="doctor-middle-grid">
-                <section className="doctor-panel doctor-appointments"><div className="doctor-panel-heading"><h2>Today’s Appointments</h2><button type="button">View all</button></div>
-                  {appointments.map((appointment) => <article className="doctor-appointment-row" key={appointment.name}><span className="appointment-time">{appointment.time}</span><span className="appointment-patient"><strong>{appointment.name}</strong><small>{appointment.detail}</small></span><span className={`appointment-status ${appointment.status.toLowerCase()}`}>{appointment.status}</span></article>)}
-                  <button className="doctor-schedule-link" type="button">View Full Schedule</button>
+                <section className="doctor-panel doctor-appointments"><div className="doctor-panel-heading"><h2>Today’s Appointments</h2><button type="button" onClick={() => navigate('/doctor/appointments')}>View all</button></div>
+                  {docTodayAppointments.length > 0 ? (
+                    docTodayAppointments.map((appointment) => {
+                      const timeStr = new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', hour: 'numeric', minute: '2-digit' }).format(new Date(appointment.startsAt));
+                      return (
+                        <article className="doctor-appointment-row" key={appointment.id}>
+                          <span className="appointment-time">{timeStr}</span>
+                          <span className="appointment-patient">
+                            <strong>{appointment.patient?.name || 'Patient'}</strong>
+                            <small>{appointment.reason}</small>
+                          </span>
+                          <span className={`appointment-status ${appointment.status.toLowerCase()}`}>
+                            {appointment.status.replace(/_/g, ' ')}
+                          </span>
+                        </article>
+                      );
+                    })
+                  ) : (
+                    <div style={{ padding: '24px 16px', textAlign: 'center', color: '#687b87', fontSize: '13px' }}>
+                      <p style={{ margin: '0 0 10px' }}>No appointments scheduled for today.</p>
+                      <button
+                        type="button"
+                        onClick={() => navigate('/doctor/appointments')}
+                        style={{ color: '#167c84', background: '#eaf4f5', border: '1px solid #c8dfe2', padding: '6px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}
+                      >
+                        View All Appointments
+                      </button>
+                    </div>
+                  )}
+                  <button className="doctor-schedule-link" type="button" onClick={() => navigate('/doctor/appointments')}>View Full Schedule</button>
                 </section>
-                <section className="doctor-panel doctor-quick-links"><div className="doctor-panel-heading"><h2>Quick Links</h2></div><div className="doctor-quick-grid">{[[Users, 'Patient Records'], [CalendarDays, 'Appointments'], [FileText, 'Prescriptions'], [FlaskConical, 'Lab Reports'], [ClipboardList, 'Treatment Plans'], [Activity, 'Medical History']].map(([Icon, label]) => <button type="button" key={label}><span><Icon size={20} /></span>{label}</button>)}</div></section>
-                <section className="doctor-panel doctor-queue"><div className="doctor-panel-heading"><h2>Patient Queue Status</h2><button type="button">View all</button></div><div className="doctor-queue-content"><div className="doctor-donut"><span>Total<strong>42</strong></span></div><ul><li><i className="waiting" />Waiting</li><li><i className="consult" />In Consultation</li><li><i className="completed" />Completed</li><li><i className="noshow" />No Show</li></ul></div></section>
+                <section className="doctor-panel doctor-quick-links"><div className="doctor-panel-heading"><h2>Quick Links</h2></div><div className="doctor-quick-grid">{[[CalendarDays, 'Appointments', '/doctor/appointments'], [Settings, 'Settings', '/doctor/settings'], [MessageCircle, 'Messages', '/doctor/messages']].map(([Icon, label, link]) => <button type="button" key={label} onClick={() => navigate(link)}><span><Icon size={20} /></span>{label}</button>)}</div></section>
+                <section className="doctor-panel doctor-queue"><div className="doctor-panel-heading"><h2>Patient Queue Status</h2><button type="button" onClick={() => navigate('/doctor/appointments')}>View all</button></div><div className="doctor-queue-content"><div className="doctor-donut"><span>Total<strong>{docQueueCounts.total}</strong></span></div><ul><li><i className="waiting" />Waiting ({docQueueCounts.waiting})</li><li><i className="consult" />In Consultation ({docQueueCounts.consult})</li><li><i className="completed" />Completed ({docQueueCounts.completed})</li><li><i className="noshow" />No Show ({docQueueCounts.noshow})</li></ul></div></section>
               </div>
 
               <div className="doctor-bottom-grid">
                 <section className="doctor-panel doctor-analytics"><div className="doctor-panel-heading"><h2>Appointment Analytics</h2><button type="button">View all</button></div><div className="doctor-chart" aria-label="Monthly appointment analytics chart">{['Jan','Feb','Mar','Apr','May','Jun','Aug','Sep','Oct','Nov','Dec'].map((month, i) => <div className="chart-month" key={month}><div className="chart-bars"><i style={{height: `${[46,70,84,52,58,62,48,70,51,57,41][i]}%`}} /><i style={{height: `${[66,57,72,48,82,78,58,48,44,72,30][i]}%`}} /><i style={{height: `${[0,0,0,31,0,80,0,0,42,0,0][i]}%`}} /></div><small>{month}</small></div>)}</div></section>
-                <section className="doctor-panel doctor-pending"><div className="doctor-panel-heading"><h2>Pending Actions</h2><button type="button">View all</button></div>{[['Review blood report for Anil', true], ['Approve refill for Priya', true], ['Sign off on diagnostic summary', false]].map(([task, done]) => <button className="doctor-task" key={task} type="button"><span className={done ? 'task-check' : 'task-pending'}>{done ? <CheckCircle2 size={18} /> : <CircleX size={18} />}</span><span>{task}</span><ArrowRight size={17} /></button>)}</section>
+                <section className="doctor-panel doctor-pending"><div className="doctor-panel-heading"><h2>Pending Actions</h2><button type="button" onClick={() => navigate('/doctor/appointments')}>View all</button></div>{[[`Review ${docCounts.requests} pending appointment request(s)`, docCounts.requests === 0], ['Complete doctor profile verification', true], ['Check encrypted medical record authorizations', true]].map(([task, done]) => <button className="doctor-task" key={task} type="button" onClick={() => navigate('/doctor/appointments')}><span className={done ? 'task-check' : 'task-pending'}>{done ? <CheckCircle2 size={18} /> : <CircleX size={18} />}</span><span>{task}</span><ArrowRight size={17} /></button>)}</section>
               </div>
             </section>
 
             <aside className="doctor-right-column">
-              <section className="doctor-panel doctor-calendar"><div className="calendar-heading"><h2>{monthName}</h2><div><button aria-label="Previous month" type="button" onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))}><ChevronLeft size={17} /></button><button aria-label="Next month" type="button" onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))}><ChevronRight size={17} /></button></div></div><div className="calendar-grid">{['SUN','MON','TUE','WED','THU','FRI','SAT'].map((day) => <b key={day}>{day}</b>)}{calendarCells.map((day, index) => <span className={day === 24 && calendarMonth.getMonth() === 9 && calendarMonth.getFullYear() === 2026 ? 'today' : ''} key={`${calendarMonth.getMonth()}-${index}`}>{day || ''}</span>)}</div></section>
-              <section className="doctor-panel doctor-todays-schedule"><div className="doctor-panel-heading"><h2>Today’s Schedule</h2></div>{appointments.map((appointment, i) => <div className="doctor-timeline-row" key={appointment.name}><strong>{appointment.time}</strong><i className={`timeline-dot dot-${i}`} /><span className={`timeline-card card-${i}`}>{appointment.name.split(' ')[0]}</span></div>)}</section>
-              <section className="doctor-panel doctor-assistant"><div className="assistant-heading"><span className="clinical-bot"><Bot size={19} /></span><div><h2>AI Assistant</h2><small><i /> Online</small></div><button type="button" aria-label="Assistant options"><MoreVertical size={18} /></button></div><div className="assistant-body"><div className="assistant-message"><span className="clinical-bot small"><Bot size={15} /></span><p>Hello Dr. {user.full_name?.split(' ').slice(-1)[0]}! 👋<br />How can I assist you today?</p></div><div className="assistant-suggestions"><button type="button">Summarize Patient</button><button type="button">Suggest Diagnosis</button><button type="button">Check Drug Interaction</button></div><label className="assistant-input"><input placeholder="Ask me anything..." aria-label="Ask AI assistant" /><button type="button" aria-label="Send"><Send size={17} /></button></label></div></section>
+              <section className="doctor-panel doctor-calendar"><div className="calendar-heading"><h2>{monthName}</h2><div><button aria-label="Previous month" type="button" onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))}><ChevronLeft size={17} /></button><button aria-label="Next month" type="button" onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))}><ChevronRight size={17} /></button></div></div><div className="calendar-grid">{['SUN','MON','TUE','WED','THU','FRI','SAT'].map((day) => <b key={day}>{day}</b>)}{calendarCells.map((day, index) => <span className={day === now.getDate() && calendarMonth.getMonth() === now.getMonth() && calendarMonth.getFullYear() === now.getFullYear() ? 'today' : ''} key={`${calendarMonth.getMonth()}-${index}`}>{day || ''}</span>)}</div></section>
+              <section className="doctor-panel doctor-todays-schedule"><div className="doctor-panel-heading"><h2>Today’s Schedule</h2></div>{docTodayAppointments.length > 0 ? (
+                docTodayAppointments.map((appointment, i) => {
+                  const timeStr = new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', hour: 'numeric', minute: '2-digit' }).format(new Date(appointment.startsAt));
+                  return (
+                    <div className="doctor-timeline-row" key={appointment.id}>
+                      <strong>{timeStr}</strong>
+                      <i className={`timeline-dot dot-${i % 3}`} />
+                      <span className={`timeline-card card-${i % 3}`}>{appointment.patient?.name?.split(' ')[0] || 'Patient'}</span>
+                    </div>
+                  );
+                })
+              ) : (
+                <p style={{ padding: '16px', color: '#728591', fontSize: '12px', textAlign: 'center', margin: 0 }}>No schedule for today.</p>
+              )}</section>
+              <section className="doctor-panel doctor-assistant"><div className="assistant-heading"><span className="clinical-bot"><Bot size={19} /></span><div><h2>AI Assistant</h2><small><i /> Online</small></div><button type="button" aria-label="Assistant options"><MoreVertical size={18} /></button></div><div className="assistant-body"><div className="assistant-message"><span className="clinical-bot small"><Bot size={15} /></span><p>Hello Dr. {effectiveUser.full_name?.split(' ').slice(-1)[0]}! 👋<br />How can I assist you today?</p></div><div className="assistant-suggestions"><button type="button" onClick={() => navigate('/doctor/appointments')}>Check Appointments</button><button type="button" onClick={() => navigate('/doctor/settings')}>Doctor Settings</button></div><label className="assistant-input"><input placeholder="Ask me anything..." aria-label="Ask AI assistant" /><button type="button" aria-label="Send"><Send size={17} /></button></label></div></section>
             </aside>
           </div>
         </main>

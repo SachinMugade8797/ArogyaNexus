@@ -287,15 +287,16 @@ app.post('/api/appointments', async (req: Request, res: Response) => {
     if (defaultUser) {
       session = {
         sessionId: 'dev-session',
-        user: { id: defaultUser.id, email: defaultUser.email, role: 'patient', full_name: defaultUser.full_name },
-        expiresAt: new Date(Date.now() + 86400000),
+        user: { id: defaultUser.id, email: defaultUser.email, role: 'patient', full_name: defaultUser.full_name, phone: defaultUser.phone || null },
+        createdAt: Date.now(),
+        expiresAt: Date.now() + 86400000,
       };
     } else {
       res.status(401).json({ success: false, error: 'Please log in as a patient to request an appointment.' });
       return;
     }
   }
-  if (session.user.role !== 'patient') {
+  if (!session || session.user.role !== 'patient') {
     res.status(403).json({ success: false, error: 'Only patient accounts can book appointments.' });
     return;
   }
@@ -362,14 +363,16 @@ async function appointmentProfile(req: Request, res: Response) {
     if (defaultUser) {
       session = {
         sessionId: 'dev-session',
-        user: { id: defaultUser.id, email: defaultUser.email, role: 'patient', full_name: defaultUser.full_name },
-        expiresAt: new Date(Date.now() + 86400000),
+        user: { id: defaultUser.id, email: defaultUser.email, role: 'patient', full_name: defaultUser.full_name, phone: defaultUser.phone || null },
+        createdAt: Date.now(),
+        expiresAt: Date.now() + 86400000,
       };
     } else {
       res.status(401).json({ error: 'Authentication required.' });
       return null;
     }
   }
+  if (!session) return null;
   const parsed = profileQuery.safeParse(req.query);
   if (!parsed.success) { res.status(400).json({ error: 'A valid profileId is required.', details: parsed.error.flatten() }); return null; }
   const aliases: Record<string, string> = { me: 'SELF', mother: 'MOTHER', son: 'SON' };
