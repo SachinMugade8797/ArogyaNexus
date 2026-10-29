@@ -759,7 +759,7 @@ const fallbackProfile = {
   async findUnique(args: { where: { id?: string; seed_key?: string } }) {
     const db = loadLocalDB();
     const profile = (db.profiles || []).find((p: any) => {
-      if (args.where.id && p.id === args.where.id) return true;
+      if (args.where.id && (p.id === args.where.id || (args.where.id === 'me' && p.relation === 'SELF'))) return true;
       if (args.where.seed_key && p.seed_key === args.where.seed_key) return true;
       return false;
     });
@@ -781,7 +781,9 @@ const fallbackProfile = {
   async update(args: any) {
     const db = loadLocalDB();
     db.profiles ||= [];
-    const index = db.profiles.findIndex((p: any) => p.id === args.where?.id);
+    const index = db.profiles.findIndex((p: any) =>
+      p.id === args.where?.id || (args.where?.id === 'me' && p.relation === 'SELF')
+    );
     if (index >= 0) {
       db.profiles[index] = {
         ...db.profiles[index],
@@ -800,7 +802,15 @@ const fallbackVitalReading = {
     const db = loadLocalDB();
     let res = [...(db.vital_readings || [])];
     if (args?.where) {
-      if (args.where.patient_id) res = res.filter((v: any) => v.patient_id === args.where.patient_id);
+      if (args.where.patient_id) {
+        const pid = args.where.patient_id;
+        res = res.filter((v: any) =>
+          v.patient_id === pid ||
+          (pid === 'profile-self-1' && (v.patient_id === 'me' || v.patient_id === '33333333-3333-4333-a333-333333333333')) ||
+          (pid === 'me' && (v.patient_id === 'profile-self-1' || v.patient_id === '33333333-3333-4333-a333-333333333333')) ||
+          (pid === '33333333-3333-4333-a333-333333333333' && (v.patient_id === 'me' || v.patient_id === 'profile-self-1'))
+        );
+      }
       if (args.where.type) res = res.filter((v: any) => v.type === args.where.type);
       if (args.where.measured_at?.gte) {
         const gteTime = new Date(args.where.measured_at.gte).getTime();
@@ -849,7 +859,13 @@ const fallbackPatientCondition = {
     const db = loadLocalDB();
     let res = [...(db.patient_conditions || [])];
     if (args?.where?.patient_id) {
-      res = res.filter((c: any) => c.patient_id === args.where.patient_id);
+      const pid = args.where.patient_id;
+      res = res.filter((c: any) =>
+        c.patient_id === pid ||
+        (pid === 'profile-self-1' && (c.patient_id === 'me' || c.patient_id === '33333333-3333-4333-a333-333333333333')) ||
+        (pid === 'me' && (c.patient_id === 'profile-self-1' || c.patient_id === '33333333-3333-4333-a333-333333333333')) ||
+        (pid === '33333333-3333-4333-a333-333333333333' && (c.patient_id === 'me' || c.patient_id === 'profile-self-1'))
+      );
     }
     return res;
   },
@@ -873,7 +889,12 @@ const fallbackPatientCondition = {
     const db = loadLocalDB();
     db.patient_conditions ||= [];
     if (args?.where?.patient_id) {
-      db.patient_conditions = db.patient_conditions.filter((c: any) => c.patient_id !== args.where.patient_id);
+      const pid = args.where.patient_id;
+      db.patient_conditions = db.patient_conditions.filter((c: any) =>
+        c.patient_id !== pid &&
+        !(pid === 'profile-self-1' && (c.patient_id === 'me' || c.patient_id === '33333333-3333-4333-a333-333333333333')) &&
+        !(pid === 'me' && (c.patient_id === 'profile-self-1' || c.patient_id === '33333333-3333-4333-a333-333333333333'))
+      );
       saveLocalDB(db);
     }
     return { count: 1 };
@@ -896,7 +917,15 @@ const fallbackHealthRecord = {
     const db = loadLocalDB();
     let list = [...(db.health_records || [])];
     if (args?.where) {
-      if (args.where.patient_id) list = list.filter((r: any) => r.patient_id === args.where.patient_id);
+      if (args.where.patient_id) {
+        const pid = args.where.patient_id;
+        list = list.filter((r: any) =>
+          r.patient_id === pid ||
+          (pid === 'profile-self-1' && (r.patient_id === 'me' || r.patient_id === '33333333-3333-4333-a333-333333333333')) ||
+          (pid === 'me' && (r.patient_id === 'profile-self-1' || r.patient_id === '33333333-3333-4333-a333-333333333333')) ||
+          (pid === '33333333-3333-4333-a333-333333333333' && (r.patient_id === 'me' || r.patient_id === 'profile-self-1'))
+        );
+      }
       if (args.where.deleted_at === null) list = list.filter((r: any) => !r.deleted_at);
       if (args.where.category) list = list.filter((r: any) => r.category === args.where.category);
       if (args.where.record_date?.gte) {
