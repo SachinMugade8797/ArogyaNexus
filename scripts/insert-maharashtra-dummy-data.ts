@@ -11,7 +11,7 @@ const SPECIALTIES = [
   'Gynecology',
   'Ophthalmology',
   'General Medicine',
-  'ENT (Otolaryngology)',
+  'ENT',
   'Gastroenterology',
   'Pulmonology',
   'Endocrinology',
@@ -226,16 +226,32 @@ async function main() {
 
   // Build city distribution matching total 200
   // Kolhapur: 50, Sangli: 30, Satara: 25, Pune: 35, Mumbai: 30, Nashik: 20, Solapur: 10
-  const citySlots: CityConfig[] = [];
+  const cityByName: Record<string, CityConfig> = {};
   for (const city of CITIES) {
-    for (let i = 0; i < city.count; i++) {
-      citySlots.push(city);
-    }
+    cityByName[city.name] = city;
   }
 
-  // Shuffle or interleave to distribute specialties evenly across cities
+  // Balanced distribution function: distributes 10 doctors of each specialty across Maharashtra cities
+  function getCityForDoctor(specialtyIndex: number, docNumInSpec: number): CityConfig {
+    const d = docNumInSpec - 1; // 0 to 9
+    const s = specialtyIndex;   // 0 to 19
+
+    if (d === 0 || d === 1) return cityByName['Kolhapur']; // 40 Kolhapur
+    if (d === 2) return s < 10 ? cityByName['Kolhapur'] : cityByName['Pune']; // 10 Kolhapur (Total: 50), 10 Pune
+    if (d === 3) return cityByName['Pune']; // 20 Pune
+    if (d === 4) return s < 5 ? cityByName['Pune'] : cityByName['Sangli']; // 5 Pune (Total: 35), 15 Sangli
+    if (d === 5) return s < 15 ? cityByName['Sangli'] : cityByName['Mumbai']; // 15 Sangli (Total: 30), 5 Mumbai
+    if (d === 6) return cityByName['Mumbai']; // 20 Mumbai
+    if (d === 7) return s < 5 ? cityByName['Mumbai'] : cityByName['Satara']; // 5 Mumbai (Total: 30), 15 Satara
+    if (d === 8) return s < 10 ? cityByName['Satara'] : cityByName['Solapur']; // 10 Satara (Total: 25), 10 Solapur (Total: 10)
+    if (d === 9) return cityByName['Nashik']; // 20 Nashik (Total: 20)
+
+    return cityByName['Kolhapur'];
+  }
+
+  // Interleave and distribute specialties evenly across cities
   const doctorsData = doctorSlots.map((slot, index) => {
-    const city = citySlots[index];
+    const city = getCityForDoctor(slot.specialtyIndex, slot.doctorNumInSpec);
     const isFemale = index % 3 === 0;
     const firstName = isFemale
       ? FIRST_NAMES_FEMALE[(index + slot.specialtyIndex) % FIRST_NAMES_FEMALE.length]
@@ -293,7 +309,7 @@ async function main() {
   // --------------------------------------------------------------------------
   console.log('[Step 3/3] Inserting 200 doctors into database...');
   let doctorsCreatedCount = 0;
-  let doctorsExistingCount = 0;
+  let doctorsUpdatedCount = 0;
 
   for (const doc of doctorsData) {
     let existingUser = await prisma.user.findUnique({ where: { email: doc.email } });
@@ -309,35 +325,68 @@ async function main() {
           password_hash: passwordHash,
         },
       });
-
-      await prisma.doctorProfile.create({
-        data: {
-          id: doc.id,
-          user_id: existingUser.id,
-          speciality: doc.specialty,
-          registration_number: doc.regNum,
-          clinic_name: doc.clinicName,
-          clinic_address: doc.clinicAddress,
-          consultation_fee: doc.fee,
-          status: 'approved',
-          verified: true,
-          clinic_lat: doc.clinicLat,
-          clinic_lng: doc.clinicLng,
-          experience_years: doc.expYears,
-          languages: doc.languages,
-          bio: doc.bio,
-          offers_video: true,
-          rating_avg: doc.ratingAvg,
-          rating_count: doc.ratingCount,
-        },
-      });
       doctorsCreatedCount++;
     } else {
-      doctorsExistingCount++;
+      await prisma.user.upsert({
+        where: { email: doc.email },
+        update: {
+          full_name: doc.fullName,
+          phone: doc.phone,
+        },
+        create: {
+          id: doc.userId,
+          full_name: doc.fullName,
+          email: doc.email,
+          phone: doc.phone,
+          role: 'doctor',
+          password_hash: passwordHash,
+        },
+      });
+      doctorsUpdatedCount++;
     }
+
+    await prisma.doctorProfile.upsert({
+      where: { user_id: existingUser.id },
+      update: {
+        speciality: doc.specialty,
+        registration_number: doc.regNum,
+        clinic_name: doc.clinicName,
+        clinic_address: doc.clinicAddress,
+        consultation_fee: doc.fee,
+        status: 'approved',
+        verified: true,
+        clinic_lat: doc.clinicLat,
+        clinic_lng: doc.clinicLng,
+        experience_years: doc.expYears,
+        languages: doc.languages,
+        bio: doc.bio,
+        offers_video: true,
+        rating_avg: doc.ratingAvg,
+        rating_count: doc.ratingCount,
+      },
+      create: {
+        id: doc.id,
+        user_id: existingUser.id,
+        speciality: doc.specialty,
+        registration_number: doc.regNum,
+        clinic_name: doc.clinicName,
+        clinic_address: doc.clinicAddress,
+        consultation_fee: doc.fee,
+        status: 'approved',
+        verified: true,
+        clinic_lat: doc.clinicLat,
+        clinic_lng: doc.clinicLng,
+        experience_years: doc.expYears,
+        languages: doc.languages,
+        bio: doc.bio,
+        offers_video: true,
+        rating_avg: doc.ratingAvg,
+        rating_count: doc.ratingCount,
+      },
+    });
   }
 
-  console.log(`✓ Doctors processed: ${doctorsCreatedCount} created, ${doctorsExistingCount} already existed (Total: ${doctorsData.length}).\n`);
+  console.log(`✓ Doctors processed: ${doctorsCreatedCount} created, ${doctorsUpdatedCount} updated (Total: ${doctorsData.length}).\n`);
 
   // --------------------------------------------------------------------------
   // 4. VERIFICATION & AGGREGATE COUNTS

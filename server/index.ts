@@ -19,11 +19,11 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const PUBLIC_CITIES = ['Kolhapur', 'Pune', 'Mumbai', 'Bengaluru', 'Nashik', 'Sangli', 'Satara'];
+const PUBLIC_CITIES = ['Kolhapur', 'Pune', 'Mumbai', 'Bengaluru', 'Nashik', 'Sangli', 'Satara', 'Solapur'];
 
 function toPublicDoctor(profile: any) {
   const address = String(profile.clinic_address || '');
-  const city = PUBLIC_CITIES.find((name) => new RegExp(`\\b${name}\\b`, 'i').test(address)) || null;
+  const city = PUBLIC_CITIES.find((name) => new RegExp(`\\b${name}\\b`, 'i').test(address)) || 'Bengaluru';
   const rawName = String(profile.user?.full_name || 'Doctor');
   return {
     id: profile.id,
@@ -34,11 +34,15 @@ function toPublicDoctor(profile: any) {
     city,
     consultationFee: Number(profile.consultation_fee),
     verificationStatus: 'verified',
-    qualification: null,
-    experienceYears: null,
-    rating: null,
-    reviewCount: 0,
+    qualification: profile.qualification || null,
+    experienceYears: profile.experience_years ?? null,
+    rating: profile.rating_avg ? Number(profile.rating_avg) : null,
+    reviewCount: profile.rating_count ? Number(profile.rating_count) : 0,
     availability: [],
+    languages: profile.languages || [],
+    bio: profile.bio || null,
+    offersVideo: profile.offers_video ?? true,
+    registrationNumber: profile.registration_number || null,
   };
 }
 
@@ -188,10 +192,17 @@ app.get('/api/public/doctors', async (req: Request, res: Response) => {
       select: {
         id: true,
         speciality: true,
+        registration_number: true,
         clinic_name: true,
         clinic_address: true,
         consultation_fee: true,
         status: true,
+        experience_years: true,
+        rating_avg: true,
+        rating_count: true,
+        languages: true,
+        bio: true,
+        offers_video: true,
         user: { select: { full_name: true } },
       },
       orderBy: { created_at: 'desc' },
@@ -201,9 +212,22 @@ app.get('/api/public/doctors', async (req: Request, res: Response) => {
     const city = typeof req.query.city === 'string' ? req.query.city.trim().toLowerCase() : '';
     const doctors = profiles
       .map(toPublicDoctor)
-      .filter((doctor) => !city || doctor.city?.toLowerCase() === city)
-      .filter((doctor) => !speciality || doctor.speciality.toLowerCase() === speciality)
-      .filter((doctor) => !query || `${doctor.name} ${doctor.speciality} ${doctor.clinic} ${doctor.city || ''}`.toLowerCase().includes(query));
+      .filter((doctor) => !city || doctor.city?.toLowerCase() === city || doctor.clinicAddress.toLowerCase().includes(city))
+      .filter((doctor) => {
+        if (!speciality) return true;
+        const docSpec = doctor.speciality.toLowerCase();
+        return docSpec === speciality || docSpec.includes(speciality) || speciality.includes(docSpec);
+      })
+    const sort = typeof req.query.sort === 'string' ? req.query.sort.trim().toLowerCase() : '';
+    if (sort === 'fee' || sort === 'fee-asc') {
+      doctors.sort((a, b) => a.consultationFee - b.consultationFee);
+    } else if (sort === 'fee-desc') {
+      doctors.sort((a, b) => b.consultationFee - a.consultationFee);
+    } else if (sort === 'rating') {
+      doctors.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+    } else if (sort === 'experience') {
+      doctors.sort((a, b) => (b.experienceYears || 0) - (a.experienceYears || 0));
+    }
     res.status(200).json({ success: true, doctors });
   } catch (err) {
     console.error('[Public] Could not load doctor directory:', err);
@@ -219,10 +243,17 @@ app.get('/api/public/doctors/:id', async (req: Request, res: Response) => {
       select: {
         id: true,
         speciality: true,
+        registration_number: true,
         clinic_name: true,
         clinic_address: true,
         consultation_fee: true,
         status: true,
+        experience_years: true,
+        rating_avg: true,
+        rating_count: true,
+        languages: true,
+        bio: true,
+        offers_video: true,
         user: { select: { full_name: true } },
       },
     });
