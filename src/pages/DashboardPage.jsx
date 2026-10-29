@@ -37,11 +37,6 @@ export default function DashboardPage({ role }) {
   const [adminFilter, setAdminFilter] = useState('pending');
   const [reviewingId, setReviewingId] = useState('');
   const [adminReload, setAdminReload] = useState(0);
-  const [adminView, setAdminView] = useState('overview');
-  const [adminUsers, setAdminUsers] = useState([]);
-  const [adminUsersLoading, setAdminUsersLoading] = useState(false);
-  const [adminUsersError, setAdminUsersError] = useState('');
-  const [adminSearch, setAdminSearch] = useState('');
   const navigate = useNavigate();
   const [calendarMonth, setCalendarMonth] = useState(new Date(2026, 9, 1));
 
@@ -71,22 +66,6 @@ export default function DashboardPage({ role }) {
       .finally(() => { if (active) setAdminLoading(false); });
     return () => { active = false; };
   }, [role, adminReload]);
-
-  useEffect(() => {
-    if (role !== 'admin' || adminView !== 'users') return undefined;
-    let active = true;
-    setAdminUsersLoading(true);
-    setAdminUsersError('');
-    fetch('/api/admin/users', { credentials: 'include' })
-      .then(async (response) => {
-        const data = await response.json();
-        if (!response.ok || !data.success) throw new Error(data.error || 'Could not load users.');
-        if (active) setAdminUsers(data.users || []);
-      })
-      .catch((error) => { if (active) setAdminUsersError(error.message || 'Could not load users.'); })
-      .finally(() => { if (active) setAdminUsersLoading(false); });
-    return () => { active = false; };
-  }, [role, adminView, adminReload]);
 
   const reviewDoctorApplication = async (id, status) => {
     setReviewingId(id);
@@ -208,34 +187,28 @@ export default function DashboardPage({ role }) {
 
   if (role === 'admin') {
     const pendingCount = adminApplications.filter((application) => application.status === 'pending').length;
-    const normalizedAdminSearch = adminSearch.trim().toLowerCase();
-    const visibleApplications = (adminFilter === 'all' ? adminApplications : adminApplications.filter((application) => application.status === adminFilter))
-      .filter((application) => !normalizedAdminSearch || [application.user?.full_name, application.user?.email, application.speciality, application.clinic_name].some((value) => String(value || '').toLowerCase().includes(normalizedAdminSearch)));
-    const visibleAdminUsers = adminUsers.filter((item) => !normalizedAdminSearch || [item.full_name, item.email, item.phone, item.role].some((value) => String(value || '').toLowerCase().includes(normalizedAdminSearch)));
-    const adminPageTitle = { overview: 'Admin overview', approvals: 'Doctor verification', users: 'User management', settings: 'Platform settings' }[adminView];
+    const visibleApplications = adminFilter === 'all' ? adminApplications : adminApplications.filter((application) => application.status === adminFilter);
     const currentDate = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
     return (
       <div className="admin-dashboard">
         <aside className="admin-sidebar" aria-label="Administrator navigation">
           <Link className="admin-brand" to="/admin/dashboard"><span><Activity size={23} /></span><b>AROGYA<span>NEXUS</span></b></Link>
           <div className="admin-nav-label">WORKSPACE</div>
-          <nav className="admin-nav"><button type="button" className={`admin-nav-link${adminView === 'overview' ? ' active' : ''}`} onClick={() => setAdminView('overview')}><LayoutDashboard size={18} /> Overview</button><button type="button" className={`admin-nav-link${adminView === 'approvals' ? ' active' : ''}`} onClick={() => setAdminView('approvals')}><UserCheck size={18} /> Doctor Approvals<span>{pendingCount}</span></button><button type="button" className={`admin-nav-link${adminView === 'users' ? ' active' : ''}`} onClick={() => setAdminView('users')}><Users size={18} /> Users</button><button type="button" className={`admin-nav-link${adminView === 'settings' ? ' active' : ''}`} onClick={() => setAdminView('settings')}><Settings size={18} /> Settings</button></nav>
+          <nav className="admin-nav"><button type="button" className="admin-nav-link active"><LayoutDashboard size={18} /> Overview</button><button type="button" className="admin-nav-link"><UserCheck size={18} /> Doctor Approvals<span>{pendingCount}</span></button><button type="button" className="admin-nav-link"><Users size={18} /> Users</button><button type="button" className="admin-nav-link"><Activity size={18} /> Activity Logs</button><button type="button" className="admin-nav-link"><Settings size={18} /> Settings</button></nav>
           <div className="admin-sidebar-bottom"><div className="admin-account"><span className="admin-avatar">{user.full_name?.trim()?.charAt(0) || 'A'}</span><span><b>{user.full_name}</b><small>Platform Administrator</small></span></div><button className="admin-logout" type="button" onClick={() => setShowLogoutDialog(true)}><LogOut size={17} /> Log out</button></div>
         </aside>
 
         <main className="admin-main">
-          <header className="admin-topbar"><label className="admin-search"><Search size={17} /><input value={adminSearch} onChange={(event) => setAdminSearch(event.target.value)} placeholder={adminView === 'users' ? 'Search name, email, phone, role...' : 'Search doctors, clinics, applications...'} aria-label={adminView === 'users' ? 'Search users' : 'Search applications'} /></label><div className="admin-topbar-actions"><span className="admin-date">{currentDate}</span><span className="admin-avatar">{user.full_name?.trim()?.charAt(0) || 'A'}</span></div></header>
+          <header className="admin-topbar"><div className="admin-search"><Search size={17} /><input placeholder="Search doctors, clinics, applications..." aria-label="Search applications" /></div><div className="admin-topbar-actions"><span className="admin-date">{currentDate}</span><button type="button" aria-label="Notifications" className="admin-bell"><Bell size={20} /><i>2</i></button><span className="admin-avatar">{user.full_name?.trim()?.charAt(0) || 'A'}</span></div></header>
           <div className="admin-content">
-            <section className="admin-heading"><div><p>ADMINISTRATION / {adminView.toUpperCase()}</p><h1>{adminPageTitle}</h1><span>{adminView === 'users' ? 'Current user accounts loaded from the database.' : adminView === 'settings' ? 'Read-only platform and database status.' : adminView === 'approvals' ? 'Review credentials and manage access to the ArogyaNexus network.' : 'Monitor doctor applications and platform records.'}</span></div>{adminView !== 'settings' && <button type="button" className="admin-refresh" onClick={() => setAdminReload((count) => count + 1)}><RefreshCw size={16} /> Refresh data</button>}</section>
-            {adminView !== 'users' && adminView !== 'settings' && <>
+            <section className="admin-heading"><div><p>ADMINISTRATION / OVERVIEW</p><h1>Doctor verification</h1><span>Review credentials and manage access to the ArogyaNexus network.</span></div><button type="button" className="admin-refresh" onClick={() => setAdminReload((count) => count + 1)}><RefreshCw size={16} /> Refresh list</button></section>
             <section className="admin-summary-grid"><article><span className="admin-summary-icon blue"><Users size={19} /></span><div><small>Total applications</small><b>{adminApplications.length}</b><em>All doctor registrations</em></div></article><article><span className="admin-summary-icon amber"><Clock3 size={19} /></span><div><small>Awaiting review</small><b>{pendingCount}</b><em>Needs administrator action</em></div></article><article><span className="admin-summary-icon green"><UserCheck size={19} /></span><div><small>Approved</small><b>{adminApplications.filter((application) => application.status === 'approved').length}</b><em>Verified professionals</em></div></article><article><span className="admin-summary-icon violet"><ShieldCheck size={19} /></span><div><small>Rejected</small><b>{adminApplications.filter((application) => application.status === 'rejected').length}</b><em>Applications declined</em></div></article></section>
 
-            {adminView === 'overview' && <section className="admin-applications-panel admin-overview-note"><h2>Platform overview</h2><p>Doctor verification records are current from the database. Select Doctor Approvals to review registrations or Users to browse registered accounts.</p></section>}
-            {adminView === 'approvals' && <section className="admin-applications-panel">
+            <section className="admin-applications-panel">
               <div className="admin-list-heading"><div><h2>Doctor applications</h2><p>Check registration details before granting clinical access.</p></div><label className="admin-filter"><Filter size={15} /><select aria-label="Filter application status" value={adminFilter} onChange={(event) => setAdminFilter(event.target.value)}><option value="pending">Pending review</option><option value="all">All applications</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select><ChevronDown size={15} /></label></div>
               {adminNotice && <p className="admin-feedback success" role="status"><CheckCircle2 size={16} />{adminNotice}</p>}
               {adminError && <p className="admin-feedback error" role="alert">{adminError}</p>}
-              {adminLoading ? <div className="admin-empty"><RefreshCw size={22} />Loading applications…</div> : adminError ? <div className="admin-empty" role="alert"><ShieldCheck size={25} /><b>Applications could not be loaded</b><span>{adminError}</span></div> : visibleApplications.length === 0 ? <div className="admin-empty"><ShieldCheck size={25} /><b>No matching {adminFilter === 'all' ? '' : `${adminFilter} `}applications</b><span>Try another filter or search term.</span></div> : (
+              {adminLoading ? <div className="admin-empty"><RefreshCw size={22} />Loading applications…</div> : visibleApplications.length === 0 ? <div className="admin-empty"><ShieldCheck size={25} /><b>No {adminFilter === 'all' ? '' : `${adminFilter} `}applications</b><span>Doctor registrations will appear here when submitted.</span></div> : (
                 <div className="admin-application-list">{visibleApplications.map((application) => {
                   const doctor = application.user || {};
                   const statusClass = ['pending', 'approved', 'rejected'].includes(application.status) ? application.status : 'pending';
@@ -246,10 +219,7 @@ export default function DashboardPage({ role }) {
                   </article>;
                 })}</div>
               )}
-            </section>}
-            </>}
-            {adminView === 'users' && <section className="admin-applications-panel admin-users-panel"><div className="admin-list-heading"><div><h2>Registered users</h2><p>{adminUsersLoading ? 'Refreshing from the database…' : `${adminUsers.length} accounts loaded from the current database`}</p></div><button type="button" className="admin-refresh" onClick={() => setAdminReload((count) => count + 1)}><RefreshCw size={15} /> Refresh</button></div>{adminUsersError ? <div className="admin-empty" role="alert"><Users size={24} /><b>Users could not be loaded</b><span>{adminUsersError}</span></div> : adminUsersLoading ? <div className="admin-empty" role="status"><RefreshCw size={22} />Loading users…</div> : visibleAdminUsers.length === 0 ? <div className="admin-empty"><Users size={24} /><b>No matching users</b><span>Try a different search.</span></div> : <div className="admin-table-wrap"><table className="admin-users-table"><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Role</th><th>Joined</th></tr></thead><tbody>{visibleAdminUsers.map((item) => <tr key={item.id}><td><strong>{item.full_name}</strong></td><td>{item.email}</td><td>{item.phone || '—'}</td><td><span className={`admin-role-badge ${String(item.role).toLowerCase()}`}>{item.role}</span></td><td>{item.created_at ? new Date(item.created_at).toLocaleDateString() : '—'}</td></tr>)}</tbody></table></div>}</section>}
-            {adminView === 'settings' && <section className="admin-settings-grid"><article className="admin-applications-panel"><span className="admin-summary-icon green"><ShieldCheck size={20} /></span><h2>Administrator access</h2><p>Signed in as {user.full_name}. Administrative API requests are protected by the server session.</p><span className="admin-settings-state">Session verified</span></article><article className="admin-applications-panel"><span className="admin-summary-icon blue"><Users size={20} /></span><h2>Database records</h2><p>{adminApplications.length} doctor application records are currently loaded. The users page refreshes directly from the database.</p><button type="button" className="admin-refresh" onClick={() => setAdminReload((count) => count + 1)}><RefreshCw size={15} /> Refresh records</button></article><article className="admin-applications-panel"><span className="admin-summary-icon amber"><Settings size={20} /></span><h2>Platform configuration</h2><p>Configuration editing is not available in the current backend. This page is read-only.</p><span className="admin-settings-state muted">No editable settings endpoint</span></article></section>}
+            </section>
           </div>
         </main>
         {showLogoutDialog && <div className="dashboard-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !loggingOut) setShowLogoutDialog(false); }}><section className="dashboard-dialog" role="dialog" aria-modal="true" aria-labelledby="logout-title"><button className="dashboard-dialog-close" type="button" aria-label="Close logout confirmation" disabled={loggingOut} onClick={() => setShowLogoutDialog(false)}><X size={19} /></button><span className="dashboard-dialog-icon"><LogOut size={21} /></span><h2 id="logout-title">Log out?</h2><p>You’ll be signed out of your account and returned to the login page.</p>{logoutError && <p className="dashboard-dialog-error" role="alert">{logoutError}</p>}<div className="dashboard-dialog-actions"><button className="dashboard-button-secondary" type="button" disabled={loggingOut} onClick={() => setShowLogoutDialog(false)}>Cancel</button><button className="dashboard-button-primary" type="button" disabled={loggingOut} onClick={confirmLogout}>{loggingOut ? 'Logging out…' : 'Log out'}</button></div></section></div>}

@@ -216,17 +216,6 @@ function logFallbackNotice() {
 // Fallback Query Implementations
 // ----------------------------------------------------------------------------
 const fallbackUser = {
-  async findMany(args: { where?: any; orderBy?: any; select?: any } = {}) {
-    const db = loadLocalDB();
-    let users = [...db.users];
-    if (args.where?.role) users = users.filter((user) => user.role === args.where.role);
-    if (args.orderBy?.created_at === 'desc') users.sort((a, b) => b.created_at.localeCompare(a.created_at));
-    return users.map((user) => {
-      if (!args.select) return { ...user };
-      return Object.fromEntries(Object.entries(args.select).filter(([, selected]) => selected).map(([key]) => [key, (user as any)[key]]));
-    });
-  },
-
   async findUnique(args: { where: { email?: string; id?: string }; include?: { doctor_profile?: boolean }; select?: any }) {
     const db = loadLocalDB();
     const user = db.users.find((u) => {
@@ -423,24 +412,6 @@ const fallbackAppointment = {
 // ----------------------------------------------------------------------------
 export const prisma = {
   user: {
-    async findMany(args: any = {}) {
-      const running = await isPostgresRunning();
-      if (!running) {
-        logFallbackNotice();
-        return await fallbackUser.findMany(args);
-      }
-      try {
-        return await rawPrisma.user.findMany(args);
-      } catch (err) {
-        if (isConnectionError(err)) {
-          postgresAvailable = false;
-          logFallbackNotice();
-          return await fallbackUser.findMany(args);
-        }
-        throw err;
-      }
-    },
-
     async findUnique(args: any) {
       const running = await isPostgresRunning();
       if (!running) {

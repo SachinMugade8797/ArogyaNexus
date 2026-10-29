@@ -128,25 +128,6 @@ app.get('/api/auth/me', (req: Request, res: Response) => {
 });
 
 // Admin-only doctor application review
-app.get('/api/admin/users', async (req: Request, res: Response) => {
-  const session = getSession(req.cookies[SESSION_COOKIE_NAME]);
-  if (!session || session.user.role !== 'admin') {
-    res.status(session ? 403 : 401).json({ success: false, error: 'Administrator access required.' });
-    return;
-  }
-
-  try {
-    const users = await prisma.user.findMany({
-      select: { id: true, full_name: true, email: true, phone: true, role: true, created_at: true },
-      orderBy: { created_at: 'desc' },
-    });
-    res.status(200).json({ success: true, users });
-  } catch (err) {
-    console.error('[Admin] Could not load users:', err);
-    res.status(500).json({ success: false, error: 'Could not load users.' });
-  }
-});
-
 app.get('/api/admin/doctor-applications', async (req: Request, res: Response) => {
   const session = getSession(req.cookies[SESSION_COOKIE_NAME]);
   if (!session || session.user.role !== 'admin') {
