@@ -116,15 +116,15 @@ function loadLocalDB(): LocalDB {
   }
 
   // Pre-seeded initial accounts matching prisma/seed.ts
-  const defaultHash = bcrypt.hashSync('Password123!', 10);
-  const adminHash = bcrypt.hashSync('AdminSecure2026!', 10);
+  const defaultHash = bcrypt.hashSync('Pass@123', 12);
+  const adminHash = defaultHash;
 
   const initialDB: LocalDB = {
     users: [
       {
         id: '11111111-1111-4111-a111-111111111111',
         full_name: 'Platform Administrator',
-        email: 'admin@mednexus.org',
+        email: 'a@gmail.com',
         password_hash: adminHash,
         phone: '+1 (555) 999-0000',
         role: 'admin',
@@ -134,7 +134,7 @@ function loadLocalDB(): LocalDB {
       {
         id: '22222222-2222-4222-a222-222222222222',
         full_name: 'Dr. Ananya Sharma',
-        email: 'doctor.approved@mednexus.org',
+        email: 'd@gmail.com',
         password_hash: defaultHash,
         phone: '+1 (555) 234-5678',
         role: 'doctor',
@@ -144,7 +144,7 @@ function loadLocalDB(): LocalDB {
       {
         id: '33333333-3333-4333-a333-333333333333',
         full_name: 'Atharv Kavitake',
-        email: 'patient@mednexus.org',
+        email: 'u@gmail.com',
         password_hash: defaultHash,
         phone: '+1 (555) 019-2834',
         role: 'patient',
@@ -199,15 +199,21 @@ function isConnectionError(err: unknown): boolean {
   );
 }
 
+function isSchemaCompatibilityError(err: unknown): boolean {
+  if (!err) return false;
+  const code = String((err as any)?.code || '');
+  const message = String((err as any)?.message || err);
+  return code === 'P2032' || code === 'P2009' || message.includes('incompatible value');
+}
+
 let warnedFallback = false;
 function logFallbackNotice() {
   if (!warnedFallback) {
     warnedFallback = true;
     console.warn(
-      '\n⚠️  [ArogyaNexus DB Notice]: PostgreSQL server at localhost:5432 was not detected.\n' +
-        '👉 Automatically activated local persistent storage (.local_db.json).\n' +
-        '✨ You can test Patient Registration, Doctor Registration, and Login without any interruptions!\n' +
-        '💡 Once you start PostgreSQL (Start-Service postgresql*), it will automatically use real PostgreSQL.\n'
+      '\n[ArogyaNexus DB Notice]: PostgreSQL is unavailable or incompatible with the current Prisma schema.\n' +
+        'Using local persistent storage (.local_db.json).\n' +
+        'PostgreSQL will be retried automatically after a short delay.\n'
     );
   }
 }
@@ -216,6 +222,10 @@ function logFallbackNotice() {
 // Fallback Query Implementations
 // ----------------------------------------------------------------------------
 const fallbackUser = {
+  async findMany(_args: any = {}) {
+    const db = loadLocalDB();
+    return db.users.map((u) => ({ ...u }));
+  },
   async findUnique(args: { where: { email?: string; id?: string }; include?: { doctor_profile?: boolean }; select?: any }) {
     const db = loadLocalDB();
     const user = db.users.find((u) => {
@@ -257,6 +267,14 @@ const fallbackUser = {
 
     db.users.push(newUser);
     saveLocalDB(db);
+
+    if (args.select) {
+      return Object.fromEntries(
+        Object.entries(args.select)
+          .filter(([, selected]) => selected === true)
+          .map(([key]) => [key, (newUser as any)[key]])
+      );
+    }
 
     return { ...newUser };
   },
@@ -412,6 +430,23 @@ const fallbackAppointment = {
 // ----------------------------------------------------------------------------
 export const prisma = {
   user: {
+    async findMany(args: any = {}) {
+      const running = await isPostgresRunning();
+      if (!running) {
+        logFallbackNotice();
+        return await fallbackUser.findMany(args);
+      }
+      try {
+        return await (rawPrisma as any).user.findMany(args);
+      } catch (err) {
+        if (isConnectionError(err) || isSchemaCompatibilityError(err)) {
+          postgresAvailable = false;
+          logFallbackNotice();
+          return await fallbackUser.findMany(args);
+        }
+        throw err;
+      }
+    },
     async findUnique(args: any) {
       const running = await isPostgresRunning();
       if (!running) {
@@ -423,6 +458,12 @@ export const prisma = {
       } catch (err) {
         if (isConnectionError(err)) {
           postgresAvailable = false;
+          logFallbackNotice();
+          return await fallbackUser.findUnique(args);
+        }
+        if (isSchemaCompatibilityError(err)) {
+          postgresAvailable = false;
+          lastCheckTime = Date.now();
           logFallbackNotice();
           return await fallbackUser.findUnique(args);
         }
@@ -441,6 +482,12 @@ export const prisma = {
       } catch (err) {
         if (isConnectionError(err)) {
           postgresAvailable = false;
+          logFallbackNotice();
+          return await fallbackUser.create(args);
+        }
+        if (isSchemaCompatibilityError(err)) {
+          postgresAvailable = false;
+          lastCheckTime = Date.now();
           logFallbackNotice();
           return await fallbackUser.create(args);
         }
@@ -468,7 +515,7 @@ export const prisma = {
   },
 
   doctorProfile: {
-    async findMany(args: any = {}) {
+    async findMany(_args: any = {}) {
       const running = await isPostgresRunning();
       if (!running) {
         logFallbackNotice();
