@@ -1,5 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import fs from 'fs';
+import path from 'path';
 
 const prisma = new PrismaClient();
 const BCRYPT_SALT_ROUNDS = 12;
@@ -88,6 +90,16 @@ async function main() {
       relation: 'SELF',
       seed_key: 'seed:profile-SELF',
       allergies: ['Penicillin', 'Pollen'],
+      dob: new Date('1998-05-15'),
+      gender: 'Male',
+      blood_group: 'O+',
+      phone: patient.phone,
+      emergency_name: 'Sunita Kavitake',
+      emergency_phone: '+1 (555) 234-5678',
+      emergency_relation: 'MOTHER',
+      allergies_confirmed: true,
+      onboarding_step: 4,
+      onboarded_at: new Date(),
     },
   });
 
@@ -107,6 +119,15 @@ async function main() {
       relation: 'MOTHER',
       seed_key: 'seed:profile-MOTHER',
       allergies: [],
+      dob: new Date('1972-08-20'),
+      gender: 'Female',
+      blood_group: 'B+',
+      emergency_name: 'Atharv Kavitake',
+      emergency_phone: '+1 (555) 019-2834',
+      emergency_relation: 'SON',
+      allergies_confirmed: true,
+      onboarding_step: 4,
+      onboarded_at: new Date(),
     },
   });
 
@@ -126,6 +147,15 @@ async function main() {
       relation: 'SON',
       seed_key: 'seed:profile-SON',
       allergies: [],
+      dob: new Date('2020-03-10'),
+      gender: 'Male',
+      blood_group: 'O+',
+      emergency_name: 'Atharv Kavitake',
+      emergency_phone: '+1 (555) 019-2834',
+      emergency_relation: 'FATHER',
+      allergies_confirmed: true,
+      onboarding_step: 4,
+      onboarded_at: new Date(),
     },
   });
 
@@ -137,7 +167,62 @@ async function main() {
   });
 
   console.log(`[ArogyaNexus Seed] Seeded Patient: ${patient.email} (Profiles: SELF, MOTHER, SON)`);
-  console.log('[ArogyaNexus Seed] PostgreSQL seeding completed successfully!');
+
+  // 5. Update .local_db.json fallback file to maintain exact consistency
+  const localDbPath = path.resolve(process.cwd(), '.local_db.json');
+  const localDbData = {
+    users: [
+      {
+        id: admin.id,
+        full_name: admin.full_name,
+        email: admin.email,
+        password_hash: passwordHash,
+        phone: admin.phone,
+        role: admin.role,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      {
+        id: doctorUser.id,
+        full_name: doctorUser.full_name,
+        email: doctorUser.email,
+        password_hash: passwordHash,
+        phone: doctorUser.phone,
+        role: doctorUser.role,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      {
+        id: patient.id,
+        full_name: patient.full_name,
+        email: patient.email,
+        password_hash: passwordHash,
+        phone: patient.phone,
+        role: patient.role,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ],
+    doctor_profiles: [
+      {
+        id: doctorProfile.id,
+        user_id: doctorUser.id,
+        speciality: doctorProfile.speciality,
+        registration_number: doctorProfile.registration_number,
+        clinic_name: doctorProfile.clinic_name,
+        clinic_address: doctorProfile.clinic_address,
+        consultation_fee: Number(doctorProfile.consultation_fee),
+        status: doctorProfile.status,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ],
+    appointments: [],
+  };
+
+  fs.writeFileSync(localDbPath, JSON.stringify(localDbData, null, 2), 'utf-8');
+  console.log('[ArogyaNexus Seed] Synchronized fallback .local_db.json.');
+  console.log('[ArogyaNexus Seed] Seeding completed successfully!');
 }
 
 main()

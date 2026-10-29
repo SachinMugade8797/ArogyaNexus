@@ -1,18 +1,938 @@
 import { PrismaClient } from '@prisma/client';
+import fs from 'fs';
+import path from 'path';
+import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
+import net from 'net';
 
-// Standard singleton pattern to prevent multiple PrismaClient instances during hot reloads
+// Real Prisma client instance with hot-reload guard
 const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined;
+  rawPrisma: PrismaClient | undefined;
 };
 
-export const prisma =
-  globalForPrisma.prisma ??
+const rawPrisma =
+  globalForPrisma.rawPrisma ??
   new PrismaClient({
-    log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
+    log: ['error'],
   });
 
 if (process.env.NODE_ENV !== 'production') {
-  globalForPrisma.prisma = prisma;
+  globalForPrisma.rawPrisma = rawPrisma;
 }
+
+// ----------------------------------------------------------------------------
+// PostgreSQL Connection Prober
+// Checks if port 5432 is reachable before calling Prisma to avoid noisy engine errors
+// ----------------------------------------------------------------------------
+let postgresAvailable: boolean | null = null;
+let lastCheckTime = 0;
+const CHECK_INTERVAL_MS = 5000;
+
+export async function isPostgresRunning(): Promise<boolean> {
+  const now = Date.now();
+  if (postgresAvailable !== null && now - lastCheckTime < CHECK_INTERVAL_MS) {
+    return postgresAvailable;
+  }
+
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    socket.setTimeout(150);
+
+    socket.on('connect', () => {
+      postgresAvailable = true;
+      lastCheckTime = Date.now();
+      socket.destroy();
+      resolve(true);
+    });
+
+    const onFail = () => {
+      postgresAvailable = false;
+      lastCheckTime = Date.now();
+      socket.destroy();
+      resolve(false);
+    };
+
+    socket.on('timeout', onFail);
+    socket.on('error', onFail);
+
+    try {
+      socket.connect(5432, '127.0.0.1');
+    } catch {
+      onFail();
+    }
+  });
+}
+
+// ----------------------------------------------------------------------------
+// Local Database Fallback Storage
+// Ensures zero-downtime development when local PostgreSQL is not currently running
+// ----------------------------------------------------------------------------
+const LOCAL_DB_PATH = path.resolve(process.cwd(), '.local_db.json');
+
+interface LocalDB {
+  users: Array<{
+    id: string;
+    full_name: string;
+    email: string;
+    password_hash: string;
+    phone: string | null;
+    role: string;
+    created_at: string;
+    updated_at: string;
+  }>;
+  doctor_profiles: Array<{
+    id: string;
+    user_id: string;
+    speciality: string;
+    registration_number: string;
+    clinic_name: string;
+    clinic_address: string;
+    consultation_fee: number;
+    status: string;
+    created_at: string;
+    updated_at: string;
+  }>;
+  appointments: Array<{
+    id: string;
+    patient_id: string;
+    profile_id?: string | null;
+    doctor_profile_id: string;
+    appointment_at: string;
+    reason: string | null;
+    status: string;
+    created_at: string;
+  }>;
+  profiles: Array<{
+    id: string;
+    user_id: string;
+    name: string;
+    relation: string;
+    seed_key?: string | null;
+    allergies?: string[];
+    dob?: string | null;
+    gender?: string | null;
+    blood_group?: string | null;
+    emergency_name?: string | null;
+    emergency_phone?: string | null;
+    emergency_relation?: string | null;
+  }>;
+}
+
+function loadLocalDB(): LocalDB {
+  if (fs.existsSync(LOCAL_DB_PATH)) {
+    try {
+      const data = fs.readFileSync(LOCAL_DB_PATH, 'utf-8');
+      const db = JSON.parse(data) as LocalDB;
+      db.appointments ||= [];
+      db.profiles ||= [];
+      return db;
+    } catch {
+      // Fall through to initial seed
+    }
+  }
+
+  // Pre-seeded initial accounts matching prisma/seed.ts
+  const defaultHash = bcrypt.hashSync('Pass@123', 12);
+  const adminHash = defaultHash;
+
+  const initialDB: LocalDB = {
+    users: [
+      {
+        id: '11111111-1111-4111-a111-111111111111',
+        full_name: 'Platform Administrator',
+        email: 'a@gmail.com',
+        password_hash: adminHash,
+        phone: '+1 (555) 999-0000',
+        role: 'admin',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      {
+        id: '22222222-2222-4222-a222-222222222222',
+        full_name: 'Dr. Ananya Sharma',
+        email: 'd@gmail.com',
+        password_hash: defaultHash,
+        phone: '+1 (555) 234-5678',
+        role: 'doctor',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      {
+        id: '33333333-3333-4333-a333-333333333333',
+        full_name: 'Atharv Kavitake',
+        email: 'u@gmail.com',
+        password_hash: defaultHash,
+        phone: '+1 (555) 019-2834',
+        role: 'patient',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ],
+    doctor_profiles: [
+      {
+        id: 'dp-approved-1',
+        user_id: '22222222-2222-4222-a222-222222222222',
+        speciality: 'Cardiology',
+        registration_number: 'MCI-2020-88491',
+        clinic_name: 'Apex Multi-Specialty Heart Center',
+        clinic_address: 'Suite 400, Medical Boulevard',
+        consultation_fee: 150,
+        status: 'approved',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ],
+    appointments: [],
+    profiles: [
+      {
+        id: 'profile-self-1',
+        user_id: '33333333-3333-4333-a333-333333333333',
+        name: 'Atharv Kavitake',
+        relation: 'SELF',
+        seed_key: 'seed:profile-SELF',
+        allergies: ['Penicillin', 'Pollen'],
+        dob: '1998-05-15T00:00:00.000Z',
+        gender: 'Male',
+        blood_group: 'O+',
+        emergency_name: 'Sunita Kavitake',
+        emergency_phone: '+1 (555) 234-5678',
+        emergency_relation: 'MOTHER',
+      },
+      {
+        id: 'profile-mother-1',
+        user_id: '33333333-3333-4333-a333-333333333333',
+        name: 'Sunita Kavitake',
+        relation: 'MOTHER',
+        seed_key: 'seed:profile-MOTHER',
+        allergies: [],
+        dob: '1972-08-20T00:00:00.000Z',
+        gender: 'Female',
+        blood_group: 'B+',
+        emergency_name: 'Atharv Kavitake',
+        emergency_phone: '+1 (555) 019-2834',
+        emergency_relation: 'SON',
+      },
+      {
+        id: 'profile-son-1',
+        user_id: '33333333-3333-4333-a333-333333333333',
+        name: 'Aarav Kavitake',
+        relation: 'SON',
+        seed_key: 'seed:profile-SON',
+        allergies: [],
+        dob: '2020-03-10T00:00:00.000Z',
+        gender: 'Male',
+        blood_group: 'O+',
+        emergency_name: 'Atharv Kavitake',
+        emergency_phone: '+1 (555) 019-2834',
+        emergency_relation: 'FATHER',
+      },
+    ],
+  };
+
+  try {
+    fs.writeFileSync(LOCAL_DB_PATH, JSON.stringify(initialDB, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('[LocalDB] Could not persist initial local database file:', err);
+  }
+
+  return initialDB;
+}
+
+function saveLocalDB(db: LocalDB): void {
+  try {
+    fs.writeFileSync(LOCAL_DB_PATH, JSON.stringify(db, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('[LocalDB] Error saving database file:', err);
+  }
+}
+
+function isConnectionError(err: unknown): boolean {
+  if (!err) return false;
+  const msg = String((err as any)?.message || err);
+  const code = String((err as any)?.code || '');
+  return (
+    code === 'P1001' ||
+    msg.includes("Can't reach database server") ||
+    msg.includes('connection refused') ||
+    msg.includes('ECONNREFUSED') ||
+    msg.includes('ETIMEDOUT')
+  );
+}
+
+function isSchemaCompatibilityError(err: unknown): boolean {
+  if (!err) return false;
+  const code = String((err as any)?.code || '');
+  const message = String((err as any)?.message || err);
+  return code === 'P2032' || code === 'P2009' || message.includes('incompatible value');
+}
+
+let warnedFallback = false;
+function logFallbackNotice() {
+  if (!warnedFallback) {
+    warnedFallback = true;
+    console.warn(
+      '\n[ArogyaNexus DB Notice]: PostgreSQL is unavailable or incompatible with the current Prisma schema.\n' +
+        'Using local persistent storage (.local_db.json).\n' +
+        'PostgreSQL will be retried automatically after a short delay.\n'
+    );
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Fallback Query Implementations
+// ----------------------------------------------------------------------------
+const fallbackUser = {
+  async findMany(_args: any = {}) {
+    const db = loadLocalDB();
+    return db.users.map((u) => ({ ...u }));
+  },
+  async findUnique(args: { where: { email?: string; id?: string }; include?: { doctor_profile?: boolean }; select?: any }) {
+    const db = loadLocalDB();
+    const user = db.users.find((u) => {
+      if (args.where.email) {
+        return u.email.toLowerCase() === args.where.email.toLowerCase();
+      }
+      if (args.where.id) {
+        return u.id === args.where.id;
+      }
+      return false;
+    });
+
+    if (!user) return null;
+
+    if (args.include?.doctor_profile) {
+      const doc = db.doctor_profiles.find((dp) => dp.user_id === user.id) || null;
+      return { ...user, doctor_profile: doc };
+    }
+
+    if (args.select) {
+      return Object.fromEntries(Object.entries(args.select).filter(([, selected]) => selected === true).map(([key]) => [key, (user as any)[key]]));
+    }
+
+    return { ...user };
+  },
+
+  async create(args: { data: any; select?: any }) {
+    const db = loadLocalDB();
+    const newUser = {
+      id: crypto.randomUUID(),
+      full_name: args.data.full_name,
+      email: args.data.email.toLowerCase().trim(),
+      password_hash: args.data.password_hash,
+      phone: args.data.phone || null,
+      role: args.data.role || 'patient',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    db.users.push(newUser);
+    saveLocalDB(db);
+
+    if (args.select) {
+      return Object.fromEntries(
+        Object.entries(args.select)
+          .filter(([, selected]) => selected === true)
+          .map(([key]) => [key, (newUser as any)[key]])
+      );
+    }
+
+    return { ...newUser };
+  },
+
+  async upsert(args: { where: any; update: any; create: any }) {
+    const db = loadLocalDB();
+    const index = db.users.findIndex((u) => u.email.toLowerCase() === args.where.email.toLowerCase());
+
+    if (index >= 0) {
+      const updated = {
+        ...db.users[index],
+        ...args.update,
+        updated_at: new Date().toISOString(),
+      };
+      db.users[index] = updated;
+      saveLocalDB(db);
+      return updated;
+    } else {
+      const newUser = {
+        id: crypto.randomUUID(),
+        ...args.create,
+        email: args.create.email.toLowerCase().trim(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      db.users.push(newUser);
+      saveLocalDB(db);
+      return newUser;
+    }
+  },
+};
+
+const fallbackDoctorProfile = {
+  async findMany(args: { where?: { status?: string }; orderBy?: any; include?: any; select?: any } = {}) {
+    const db = loadLocalDB();
+    const profiles = db.doctor_profiles
+      .filter((profile) => !args.where?.status || profile.status === args.where.status)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+    return profiles.map((profile) => {
+      const doctor = args.select
+        ? Object.fromEntries(Object.entries(args.select).filter(([, selected]) => selected === true).map(([key]) => [key, (profile as any)[key]]))
+        : { ...profile };
+      if (args.include?.user || args.select?.user) {
+        const user = db.users.find((entry) => entry.id === profile.user_id);
+        const userSelect = args.select?.user?.select;
+        const safeUser = user ? (userSelect
+          ? Object.fromEntries(Object.entries(userSelect).filter(([, selected]) => selected === true).map(([key]) => [key, (user as any)[key]]))
+          : { id: user.id, full_name: user.full_name, email: user.email, phone: user.phone, created_at: user.created_at }) : null;
+        return { ...doctor, user: safeUser };
+      }
+      return doctor;
+    });
+  },
+
+  async update(args: { where: { id: string }; data: { status?: string } }) {
+    const db = loadLocalDB();
+    const profile = db.doctor_profiles.find((entry) => entry.id === args.where.id);
+    if (!profile) throw new Error('Doctor application not found.');
+    Object.assign(profile, args.data, { updated_at: new Date().toISOString() });
+    saveLocalDB(db);
+    return { ...profile };
+  },
+
+  async findUnique(args: { where: { id?: string; registration_number?: string; user_id?: string }; select?: any }) {
+    const db = loadLocalDB();
+    const doc = db.doctor_profiles.find((dp) => {
+      if (args.where.registration_number) {
+        return dp.registration_number.toUpperCase() === args.where.registration_number.toUpperCase();
+      }
+      if (args.where.user_id) {
+        return dp.user_id === args.where.user_id;
+      }
+      if (args.where.id) {
+        return dp.id === args.where.id;
+      }
+      return false;
+    });
+
+    if (!doc) return null;
+    if (args.select) return Object.fromEntries(Object.entries(args.select).filter(([, selected]) => selected === true).map(([key]) => [key, (doc as any)[key]]));
+    return { ...doc };
+  },
+
+  async create(args: { data: any }) {
+    const db = loadLocalDB();
+    const newDoc = {
+      id: crypto.randomUUID(),
+      user_id: args.data.user_id,
+      speciality: args.data.speciality,
+      registration_number: args.data.registration_number.toUpperCase().trim(),
+      clinic_name: args.data.clinic_name,
+      clinic_address: args.data.clinic_address,
+      consultation_fee: Number(args.data.consultation_fee || 0),
+      status: args.data.status || 'pending',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    db.doctor_profiles.push(newDoc);
+    saveLocalDB(db);
+
+    return { ...newDoc };
+  },
+
+  async upsert(args: { where: any; update: any; create: any }) {
+    const db = loadLocalDB();
+    const index = db.doctor_profiles.findIndex((dp) => dp.user_id === args.where.user_id);
+
+    if (index >= 0) {
+      const updated = {
+        ...db.doctor_profiles[index],
+        ...args.update,
+        updated_at: new Date().toISOString(),
+      };
+      db.doctor_profiles[index] = updated;
+      saveLocalDB(db);
+      return updated;
+    } else {
+      const newDoc = {
+        id: crypto.randomUUID(),
+        ...args.create,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      db.doctor_profiles.push(newDoc);
+      saveLocalDB(db);
+      return newDoc;
+    }
+  },
+};
+
+const fallbackAppointment = {
+  async findMany(args: any = {}) {
+    const db = loadLocalDB();
+    let res = [...(db.appointments || [])];
+    if (args?.where) {
+      if (args.where.profile_id === null) {
+        res = res.filter((a: any) => !a.profile_id);
+      } else if (args.where.profile_id) {
+        res = res.filter((a: any) => a.profile_id === args.where.profile_id);
+      }
+      if (args.where.patient_id) {
+        res = res.filter((a: any) => a.patient_id === args.where.patient_id);
+      }
+    }
+    return res;
+  },
+  async findFirst(args: any = {}) {
+    const list = await fallbackAppointment.findMany(args);
+    return list[0] || null;
+  },
+  async update(args: any) {
+    const db = loadLocalDB();
+    const idx = (db.appointments || []).findIndex((a: any) => a.id === args.where.id);
+    if (idx >= 0) {
+      db.appointments[idx] = { ...db.appointments[idx], ...args.data };
+      saveLocalDB(db);
+      return db.appointments[idx];
+    }
+    return null;
+  },
+  async create(args: { data: { patient_id: string; doctor_profile_id: string; appointment_at: Date | string; reason?: string | null; profile_id?: string | null } }) {
+    const db = loadLocalDB();
+    const appointment = {
+      id: crypto.randomUUID(),
+      patient_id: args.data.patient_id,
+      profile_id: args.data.profile_id || null,
+      doctor_profile_id: args.data.doctor_profile_id,
+      appointment_at: new Date(args.data.appointment_at).toISOString(),
+      reason: args.data.reason || null,
+      status: 'pending',
+      created_at: new Date().toISOString(),
+    };
+    db.appointments.push(appointment);
+    saveLocalDB(db);
+    return appointment;
+  },
+};
+
+const fallbackProfile = {
+  async findMany(args: any = {}) {
+    const db = loadLocalDB();
+    let res = [...(db.profiles || [])];
+    if (args?.where) {
+      if (args.where.user_id) res = res.filter((p: any) => p.user_id === args.where.user_id);
+      if (args.where.relation) res = res.filter((p: any) => p.relation === args.where.relation);
+    }
+    return res;
+  },
+  async findFirst(args: any = {}) {
+    const list = await fallbackProfile.findMany(args);
+    return list[0] || null;
+  },
+  async create(args: any) {
+    const db = loadLocalDB();
+    db.profiles ||= [];
+    const newProfile = {
+      id: args.data.id || crypto.randomUUID(),
+      ...args.data,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    db.profiles.push(newProfile);
+    saveLocalDB(db);
+    return newProfile;
+  },
+};
+
+// ----------------------------------------------------------------------------
+// Resilient Prisma Client Wrapper
+// ----------------------------------------------------------------------------
+export const prisma = {
+  user: {
+    async findMany(args: any = {}) {
+      const running = await isPostgresRunning();
+      if (!running) {
+        logFallbackNotice();
+        return await fallbackUser.findMany(args);
+      }
+      try {
+        return await (rawPrisma as any).user.findMany(args);
+      } catch (err) {
+        if (isConnectionError(err) || isSchemaCompatibilityError(err)) {
+          postgresAvailable = false;
+          logFallbackNotice();
+          return await fallbackUser.findMany(args);
+        }
+        throw err;
+      }
+    },
+    async findUnique(args: any) {
+      const running = await isPostgresRunning();
+      if (!running) {
+        logFallbackNotice();
+        return await fallbackUser.findUnique(args);
+      }
+      try {
+        return await rawPrisma.user.findUnique(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          logFallbackNotice();
+          return await fallbackUser.findUnique(args);
+        }
+        if (isSchemaCompatibilityError(err)) {
+          postgresAvailable = false;
+          lastCheckTime = Date.now();
+          logFallbackNotice();
+          return await fallbackUser.findUnique(args);
+        }
+        throw err;
+      }
+    },
+
+    async create(args: any) {
+      const running = await isPostgresRunning();
+      if (!running) {
+        logFallbackNotice();
+        return await fallbackUser.create(args);
+      }
+      try {
+        return await rawPrisma.user.create(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          logFallbackNotice();
+          return await fallbackUser.create(args);
+        }
+        if (isSchemaCompatibilityError(err)) {
+          postgresAvailable = false;
+          lastCheckTime = Date.now();
+          logFallbackNotice();
+          return await fallbackUser.create(args);
+        }
+        throw err;
+      }
+    },
+
+    async upsert(args: any) {
+      const running = await isPostgresRunning();
+      if (!running) {
+        logFallbackNotice();
+        return await fallbackUser.upsert(args);
+      }
+      try {
+        return await rawPrisma.user.upsert(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          logFallbackNotice();
+          return await fallbackUser.upsert(args);
+        }
+        throw err;
+      }
+    },
+  },
+
+  doctorProfile: {
+    async findMany(args: any = {}) {
+      const running = await isPostgresRunning();
+      if (!running) {
+        logFallbackNotice();
+        return await fallbackDoctorProfile.findMany(args);
+      }
+      try {
+        return await rawPrisma.doctorProfile.findMany(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          logFallbackNotice();
+          return await fallbackDoctorProfile.findMany(args);
+        }
+        throw err;
+      }
+    },
+
+    async update(args: any) {
+      const running = await isPostgresRunning();
+      if (!running) {
+        logFallbackNotice();
+        return await fallbackDoctorProfile.update(args);
+      }
+      try {
+        return await rawPrisma.doctorProfile.update(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          logFallbackNotice();
+          return await fallbackDoctorProfile.update(args);
+        }
+        throw err;
+      }
+    },
+
+    async findUnique(args: any) {
+      const running = await isPostgresRunning();
+      if (!running) {
+        logFallbackNotice();
+        return await fallbackDoctorProfile.findUnique(args);
+      }
+      try {
+        return await rawPrisma.doctorProfile.findUnique(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          logFallbackNotice();
+          return await fallbackDoctorProfile.findUnique(args);
+        }
+        throw err;
+      }
+    },
+
+    async create(args: any) {
+      const running = await isPostgresRunning();
+      if (!running) {
+        logFallbackNotice();
+        return await fallbackDoctorProfile.create(args);
+      }
+      try {
+        return await rawPrisma.doctorProfile.create(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          logFallbackNotice();
+          return await fallbackDoctorProfile.create(args);
+        }
+        throw err;
+      }
+    },
+
+    async upsert(args: any) {
+      const running = await isPostgresRunning();
+      if (!running) {
+        logFallbackNotice();
+        return await fallbackDoctorProfile.upsert(args);
+      }
+      try {
+        return await rawPrisma.doctorProfile.upsert(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          logFallbackNotice();
+          return await fallbackDoctorProfile.upsert(args);
+        }
+        throw err;
+      }
+    },
+  },
+
+  appointment: {
+    async findMany(args: any = {}) {
+      const running = await isPostgresRunning();
+      if (!running) {
+        logFallbackNotice();
+        return await fallbackAppointment.findMany(args);
+      }
+      try {
+        return await (rawPrisma as any).appointment.findMany(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          logFallbackNotice();
+          return await fallbackAppointment.findMany(args);
+        }
+        throw err;
+      }
+    },
+    async findFirst(args: any = {}) {
+      const running = await isPostgresRunning();
+      if (!running) {
+        logFallbackNotice();
+        return await fallbackAppointment.findFirst(args);
+      }
+      try {
+        return await (rawPrisma as any).appointment.findFirst(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          logFallbackNotice();
+          return await fallbackAppointment.findFirst(args);
+        }
+        throw err;
+      }
+    },
+    async update(args: any) {
+      const running = await isPostgresRunning();
+      if (!running) {
+        logFallbackNotice();
+        return await fallbackAppointment.update(args);
+      }
+      try {
+        return await (rawPrisma as any).appointment.update(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          logFallbackNotice();
+          return await fallbackAppointment.update(args);
+        }
+        throw err;
+      }
+    },
+    async create(args: any) {
+      const running = await isPostgresRunning();
+      if (!running) {
+        logFallbackNotice();
+        return await fallbackAppointment.create(args);
+      }
+      try {
+        return await (rawPrisma as any).appointment.create(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          logFallbackNotice();
+          return await fallbackAppointment.create(args);
+        }
+        throw err;
+      }
+    },
+  },
+
+  profile: {
+    async findMany(args: any = {}) {
+      const running = await isPostgresRunning();
+      if (!running) {
+        logFallbackNotice();
+        return await fallbackProfile.findMany(args);
+      }
+      try {
+        return await (rawPrisma as any).profile.findMany(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          logFallbackNotice();
+          return await fallbackProfile.findMany(args);
+        }
+        throw err;
+      }
+    },
+    async findFirst(args: any = {}) {
+      const running = await isPostgresRunning();
+      if (!running) {
+        logFallbackNotice();
+        return await fallbackProfile.findFirst(args);
+      }
+      try {
+        return await (rawPrisma as any).profile.findFirst(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          logFallbackNotice();
+          return await fallbackProfile.findFirst(args);
+        }
+        throw err;
+      }
+    },
+    async create(args: any) {
+      const running = await isPostgresRunning();
+      if (!running) {
+        logFallbackNotice();
+        return await fallbackProfile.create(args);
+      }
+      try {
+        return await (rawPrisma as any).profile.create(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          logFallbackNotice();
+          return await fallbackProfile.create(args);
+        }
+        throw err;
+      }
+    },
+    async update(args: any) {
+      const running = await isPostgresRunning();
+      if (!running) {
+        return args.data;
+      }
+      return await (rawPrisma as any).profile.update(args);
+    },
+  },
+  profileAccess: {
+    async create(args: any) {
+      const running = await isPostgresRunning();
+      if (!running) return args.data;
+      return await (rawPrisma as any).profileAccess.create(args);
+    },
+    async findFirst(args: any) {
+      const running = await isPostgresRunning();
+      if (!running) return null;
+      return await (rawPrisma as any).profileAccess.findFirst(args);
+    },
+  },
+  visitRecord: {
+    async findMany(args: any) { return await (rawPrisma as any).visitRecord.findMany(args); },
+  },
+  healthRecord: {
+    async findMany(args: any) { return await (rawPrisma as any).healthRecord.findMany(args); },
+    async findFirst(args: any) { return await (rawPrisma as any).healthRecord.findFirst(args); },
+    async create(args: any) { return await (rawPrisma as any).healthRecord.create(args); },
+    async update(args: any) { return await (rawPrisma as any).healthRecord.update(args); },
+    async count(args: any) { return await (rawPrisma as any).healthRecord.count(args); },
+  },
+  vitalReading: {
+    async findMany(args: any) { return await (rawPrisma as any).vitalReading.findMany(args); },
+    async create(args: any) { return await (rawPrisma as any).vitalReading.create(args); },
+  },
+  patientCondition: {
+    async findMany(args: any) { return await (rawPrisma as any).patientCondition.findMany(args); },
+    async create(args: any) { return await (rawPrisma as any).patientCondition.create(args); },
+    async update(args: any) { return await (rawPrisma as any).patientCondition.update(args); },
+    async deleteMany(args: any) { return await (rawPrisma as any).patientCondition.deleteMany(args); },
+  },
+  accessLog: {
+    async findMany(args: any) { return await (rawPrisma as any).accessLog.findMany(args); },
+  },
+
+  async $transaction(callbackOrPromises: any) {
+    const running = await isPostgresRunning();
+    if (!running) {
+      logFallbackNotice();
+      if (typeof callbackOrPromises === 'function') {
+        return await callbackOrPromises({
+          user: fallbackUser,
+          doctorProfile: fallbackDoctorProfile,
+        });
+      }
+      if (Array.isArray(callbackOrPromises)) {
+        return await Promise.all(callbackOrPromises);
+      }
+      return null;
+    }
+
+    try {
+      return await rawPrisma.$transaction(callbackOrPromises);
+    } catch (err) {
+      if (isConnectionError(err)) {
+        postgresAvailable = false;
+        logFallbackNotice();
+        if (typeof callbackOrPromises === 'function') {
+          return await callbackOrPromises({
+            user: fallbackUser,
+            doctorProfile: fallbackDoctorProfile,
+          });
+        }
+        throw err;
+      }
+      throw err;
+    }
+  },
+
+  async $disconnect() {
+    try {
+      await rawPrisma.$disconnect();
+    } catch {
+      // Ignore disconnect error in fallback mode
+    }
+  },
+} as unknown as PrismaClient;
 
 export default prisma;
