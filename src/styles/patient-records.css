@@ -37,3 +37,5 @@
 .condition-notes-empty { margin: 0; font-size: 11px; color: #71848a; line-height: 1.45; }
 .record-textarea { width: 100%; min-height: 70px; padding: 8px 10px; border: 1px solid #cbd9da; border-radius: 7px; color: #263b42; background: white; font: inherit; font-size: 11px; resize: vertical; }
 .record-textarea:focus-visible { outline: 2px solid var(--primary-600); outline-offset: 1px; }
+.record-preview-modal { width: min(100%, 860px) !important; max-height: 94vh !important; }
+

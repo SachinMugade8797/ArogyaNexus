@@ -57,6 +57,7 @@ export default function Records() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [recordToDelete, setRecordToDelete] = useState(null);
+  const [previewRecord, setPreviewRecord] = useState(null);
   const [vitalType, setVitalType] = useState('BLOOD_SUGAR_FASTING');
   const [uploadFile, setUploadFile] = useState(null);
 
@@ -411,6 +412,7 @@ export default function Records() {
                         key={record.id}
                         record={record}
                         profileId={activeProfile.id}
+                        onView={() => setPreviewRecord(record)}
                         onDelete={() => setRecordToDelete(record)}
                       />
                     ))}
@@ -841,6 +843,52 @@ export default function Records() {
           </Modal>
         )}
 
+        {previewRecord && (
+          <Modal
+            title={previewRecord.title || 'Medical Record'}
+            onClose={() => setPreviewRecord(null)}
+            className="record-preview-modal"
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', padding: '10px 14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <div>
+                  <strong style={{ fontSize: '13px', color: '#0f172a', display: 'block' }}>{previewRecord.title}</strong>
+                  <span style={{ fontSize: '11px', color: '#64748b' }}>
+                    {previewRecord.category} · {previewRecord.issuer} · {displayDate(previewRecord.recordDate)}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <a
+                    href={recordFileUrl(previewRecord.id, activeProfile.id, 'attachment')}
+                    download={previewRecord.fileName || previewRecord.title}
+                    className="patient-button primary"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', textDecoration: 'none', fontSize: '12px', padding: '6px 12px' }}
+                  >
+                    <Download size={14} /> Download File
+                  </a>
+                  <a
+                    href={recordFileUrl(previewRecord.id, activeProfile.id, 'inline')}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="patient-button secondary"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', textDecoration: 'none', fontSize: '12px', padding: '6px 12px' }}
+                  >
+                    Open in Full Tab ↗
+                  </a>
+                </div>
+              </div>
+
+              <div style={{ width: '100%', height: '65vh', background: '#f1f5f9', borderRadius: '8px', overflow: 'hidden', border: '1px solid #cbd5e1' }}>
+                <iframe
+                  src={recordFileUrl(previewRecord.id, activeProfile.id, 'inline')}
+                  title={previewRecord.title}
+                  style={{ width: '100%', height: '100%', border: 'none' }}
+                />
+              </div>
+            </div>
+          </Modal>
+        )}
+
         {recordToDelete && (
           <ConfirmDialog
             title="Remove this record?"
@@ -928,16 +976,18 @@ function Sparkline({ values, label }) {
   );
 }
 
-function RecordRow({ record, profileId, onDelete }) {
+function RecordRow({ record, profileId, onView, onDelete }) {
   const Icon = record.mimeType?.startsWith('image/') ? FileImage : FileText;
   return (
     <article className="clinical-record-row">
-      <span className="record-file-icon">
+      <span className="record-file-icon" onClick={onView} style={{ cursor: 'pointer' }} title="Click to view file">
         <Icon size={19} />
       </span>
       <div className="record-summary">
         <div className="record-title-line">
-          <strong>{record.title}</strong>
+          <strong onClick={onView} style={{ cursor: 'pointer' }} title="Click to view file">
+            {record.title}
+          </strong>
           <span className="record-format-badge">{record.fileType}</span>
         </div>
         <span className="record-issuer">
@@ -973,19 +1023,30 @@ function RecordRow({ record, profileId, onDelete }) {
         </div>
       </div>
       <div className="record-actions">
-        <a
+        <button
+          type="button"
           className="patient-button secondary"
-          href={recordFileUrl(record.id, profileId)}
-          target="_blank"
-          rel="noreferrer"
+          onClick={onView}
           aria-label={`View ${record.title}`}
         >
           View
+        </button>
+        <a
+          className="patient-button light"
+          href={recordFileUrl(record.id, profileId, 'inline')}
+          target="_blank"
+          rel="noreferrer"
+          title="Open file in new tab"
+          style={{ padding: '0 8px', fontSize: '11px', textDecoration: 'none' }}
+        >
+          ↗
         </a>
         <a
           className="record-download"
           href={recordFileUrl(record.id, profileId, 'attachment')}
+          download={record.fileName || record.title}
           aria-label={`Download ${record.title}`}
+          title="Download file"
         >
           <Download size={16} />
         </a>

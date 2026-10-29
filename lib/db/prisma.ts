@@ -917,6 +917,9 @@ const fallbackHealthRecord = {
     const db = loadLocalDB();
     let list = [...(db.health_records || [])];
     if (args?.where) {
+      if (args.where.id) {
+        list = list.filter((r: any) => r.id === args.where.id);
+      }
       if (args.where.patient_id) {
         const pid = args.where.patient_id;
         list = list.filter((r: any) =>

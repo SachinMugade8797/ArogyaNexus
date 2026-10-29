@@ -14,6 +14,7 @@ import { canAccessProfile } from '../lib/auth/profileAccess';
 import { readRecordMultipart, detectRecordMime } from './multipart';
 import { recordPath, removeRecord, storeRecord } from './recordStorage';
 import path from 'node:path';
+import fs from 'node:fs';
 import { vitalRangeStart, recordCategoryFilter } from '../lib/records/logic';
 
 dotenv.config();
@@ -1004,10 +1005,40 @@ app.get('/api/patient/records/access-history', async (req, res) => {
 });
 
 app.get('/api/patient/records/:id/file', async (req, res) => {
-  const input = z.object({ profileId: z.string().min(1), disposition: z.enum(['inline', 'attachment']).default('inline') }).safeParse(req.query);
+  const input = z.object({
+    profileId: z.string().min(1).default('me'),
+    disposition: z.enum(['inline', 'attachment']).default('inline'),
+  }).safeParse(req.query);
   if (!input.success) { res.status(400).json({ error: 'Invalid file request.' }); return; }
-  try { const profile = await recordsProfile(req, res); if (!profile) return; const row = await prisma.healthRecord.findFirst({ where: { id: String(req.params.id), patient_id: profile.id, deleted_at: null } }); if (!row) { res.status(404).json({ error: 'Record not found.' }); return; } res.setHeader('Content-Type', row.mime_type); res.setHeader('Content-Disposition', `${input.data.disposition}; filename*=UTF-8''${encodeURIComponent(row.file_name)}`); res.setHeader('Cache-Control', 'private, no-store'); res.sendFile(recordPath(row.file_key), (error) => { if (error && !res.headersSent) res.status(404).json({ error: 'Record file is unavailable.' }); }); }
-  catch (error) { console.error('[Records] file access failed', error); if (!res.headersSent) res.status(500).json({ error: 'Could not open this record.' }); }
+  try {
+    const profile = await recordsProfile(req, res, input.data.profileId);
+    if (!profile) return;
+    const recordId = String(req.params.id);
+    const row = await prisma.healthRecord.findFirst({
+      where: { id: recordId, patient_id: profile.id, deleted_at: null }
+    });
+    if (!row) { res.status(404).json({ error: 'Record not found.' }); return; }
+
+    const filePath = recordPath(row.file_key);
+    if (!fs.existsSync(filePath)) {
+      console.error('[Records] File missing on disk:', filePath);
+      res.status(404).json({ error: 'Record file is unavailable on server.' });
+      return;
+    }
+
+    res.setHeader('Content-Type', row.mime_type || 'application/pdf');
+    res.setHeader('Content-Disposition', `${input.data.disposition}; filename*=UTF-8''${encodeURIComponent(row.file_name)}`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.sendFile(path.resolve(filePath), { dotfiles: 'allow' }, (error) => {
+      if (error && !res.headersSent) {
+        console.error('[Records] file transfer error:', error);
+        res.status(404).json({ error: 'Record file is unavailable.' });
+      }
+    });
+  } catch (error) {
+    console.error('[Records] file access failed', error);
+    if (!res.headersSent) res.status(500).json({ error: 'Could not open this record.' });
+  }
 });
 
 app.post('/api/patient/records', async (req, res) => {

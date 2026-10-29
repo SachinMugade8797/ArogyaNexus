@@ -438,9 +438,16 @@ export function RecentDocuments({ documents = [], onRetry, state }) {
             <article key={document.id || document.name} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <span className="document-icon"><FileText size={18} /></span>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <strong style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {document.name}
-                </strong>
+                <a
+                  href={`/api/patient/records/${document.id}/file?profileId=me&disposition=inline`}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ textDecoration: 'none', color: 'inherit' }}
+                >
+                  <strong style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer' }}>
+                    {document.name}
+                  </strong>
+                </a>
                 <span>{document.category} · {document.clinic}</span>
                 <time title={document.date ? new Date(document.date).toLocaleString('en-IN', { dateStyle: 'full', timeStyle: 'short' }) : ''}>
                   {document.date ? new Date(document.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Recent'}
