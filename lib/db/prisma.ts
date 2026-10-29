@@ -89,6 +89,16 @@ interface LocalDB {
     clinic_address: string;
     consultation_fee: number;
     status: string;
+    verified?: boolean;
+    photo_url?: string | null;
+    clinic_lat?: number | null;
+    clinic_lng?: number | null;
+    experience_years?: number | null;
+    languages?: string[];
+    bio?: string | null;
+    offers_video?: boolean;
+    rating_avg?: number;
+    rating_count?: number;
     created_at: string;
     updated_at: string;
   }>;
@@ -315,7 +325,7 @@ const fallbackUser = {
   async create(args: { data: any; select?: any }) {
     const db = loadLocalDB();
     const newUser = {
-      id: crypto.randomUUID(),
+      id: args.data.id || crypto.randomUUID(),
       full_name: args.data.full_name,
       email: args.data.email.toLowerCase().trim(),
       password_hash: args.data.password_hash,
@@ -354,7 +364,7 @@ const fallbackUser = {
       return updated;
     } else {
       const newUser = {
-        id: crypto.randomUUID(),
+        id: args.create.id || crypto.randomUUID(),
         ...args.create,
         email: args.create.email.toLowerCase().trim(),
         created_at: new Date().toISOString(),
@@ -422,7 +432,7 @@ const fallbackDoctorProfile = {
   async create(args: { data: any }) {
     const db = loadLocalDB();
     const newDoc = {
-      id: crypto.randomUUID(),
+      id: args.data.id || crypto.randomUUID(),
       user_id: args.data.user_id,
       speciality: args.data.speciality,
       registration_number: args.data.registration_number.toUpperCase().trim(),
@@ -430,8 +440,19 @@ const fallbackDoctorProfile = {
       clinic_address: args.data.clinic_address,
       consultation_fee: Number(args.data.consultation_fee || 0),
       status: args.data.status || 'pending',
+      verified: args.data.verified ?? false,
+      photo_url: args.data.photo_url || null,
+      clinic_lat: args.data.clinic_lat ?? null,
+      clinic_lng: args.data.clinic_lng ?? null,
+      experience_years: args.data.experience_years ?? null,
+      languages: args.data.languages || [],
+      bio: args.data.bio || null,
+      offers_video: args.data.offers_video ?? true,
+      rating_avg: args.data.rating_avg ?? 0,
+      rating_count: args.data.rating_count ?? 0,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
+      ...args.data,
     };
 
     db.doctor_profiles.push(newDoc);
@@ -455,10 +476,27 @@ const fallbackDoctorProfile = {
       return updated;
     } else {
       const newDoc = {
-        id: crypto.randomUUID(),
-        ...args.create,
+        id: args.create.id || crypto.randomUUID(),
+        user_id: args.create.user_id,
+        speciality: args.create.speciality,
+        registration_number: args.create.registration_number.toUpperCase().trim(),
+        clinic_name: args.create.clinic_name,
+        clinic_address: args.create.clinic_address,
+        consultation_fee: Number(args.create.consultation_fee || 0),
+        status: args.create.status || 'pending',
+        verified: args.create.verified ?? false,
+        photo_url: args.create.photo_url || null,
+        clinic_lat: args.create.clinic_lat ?? null,
+        clinic_lng: args.create.clinic_lng ?? null,
+        experience_years: args.create.experience_years ?? null,
+        languages: args.create.languages || [],
+        bio: args.create.bio || null,
+        offers_video: args.create.offers_video ?? true,
+        rating_avg: args.create.rating_avg ?? 0,
+        rating_count: args.create.rating_count ?? 0,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
+        ...args.create,
       };
       db.doctor_profiles.push(newDoc);
       saveLocalDB(db);
@@ -528,6 +566,15 @@ const fallbackProfile = {
   async findFirst(args: any = {}) {
     const list = await fallbackProfile.findMany(args);
     return list[0] || null;
+  },
+  async findUnique(args: { where: { id?: string; seed_key?: string } }) {
+    const db = loadLocalDB();
+    const profile = (db.profiles || []).find((p: any) => {
+      if (args.where.id && p.id === args.where.id) return true;
+      if (args.where.seed_key && p.seed_key === args.where.seed_key) return true;
+      return false;
+    });
+    return profile ? { ...profile } : null;
   },
   async create(args: any) {
     const db = loadLocalDB();
@@ -827,6 +874,23 @@ export const prisma = {
           postgresAvailable = false;
           logFallbackNotice();
           return await fallbackProfile.findFirst(args);
+        }
+        throw err;
+      }
+    },
+    async findUnique(args: any) {
+      const running = await isPostgresRunning();
+      if (!running) {
+        logFallbackNotice();
+        return await fallbackProfile.findUnique(args);
+      }
+      try {
+        return await (rawPrisma as any).profile.findUnique(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          logFallbackNotice();
+          return await fallbackProfile.findUnique(args);
         }
         throw err;
       }
