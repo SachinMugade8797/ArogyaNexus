@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { PDFParse } from 'pdf-parse';
+import { executeWithKeyFallback } from '../geminiKeyManager';
 
 // ============================================================================
 // Schemas & Types
@@ -274,34 +275,53 @@ Respond with STRICT JSON only matching this schema:
   "reason": string | null
 }`;
 
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${this.apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          signal: controller.signal,
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-              temperature: 0.1,
-              responseMimeType: 'application/json',
-            },
-          }),
-        }
+      const verificationExecution = await executeWithKeyFallback(
+        async (apiKey) => {
+          const models = ['gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemini-3.8-flash'];
+          let lastErr: any = null;
+          for (const model of models) {
+            try {
+              const res = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  signal: controller.signal,
+                  body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }],
+                    generationConfig: {
+                      temperature: 0.1,
+                      responseMimeType: 'application/json',
+                    },
+                  }),
+                }
+              );
+              if (!res.ok) {
+                const errText = await res.text();
+                const isQuota = res.status === 429 || (res.status === 403 && /quota|resource_exhausted/i.test(errText));
+                const err: any = new Error(`HTTP ${res.status}: ${errText.slice(0, 150)}`);
+                err.status = res.status;
+                err.isQuotaExceeded = isQuota;
+                if (isQuota) throw err;
+                lastErr = err;
+                continue;
+              }
+              const data = await res.json();
+              const rawJson = data.candidates?.[0]?.content?.parts?.[0]?.text;
+              if (!rawJson) throw new Error('Empty response from verification model');
+              return { rawJson, model };
+            } catch (mErr: any) {
+              if (mErr.isQuotaExceeded) throw mErr;
+              lastErr = mErr;
+            }
+          }
+          throw lastErr || new Error('All models failed for verification');
+        },
+        { explicitKey: this.apiKey, operationName: 'Document Verification' }
       );
 
       clearTimeout(timer);
-
-      if (!response.ok) {
-        console.warn(`[GeminiVerification] API returned status ${response.status}, falling back to rule-based engine.`);
-        return await this.fallbackEngine.verify(input);
-      }
-
-      const data = await response.json();
-      const rawJson = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!rawJson) {
-        return await this.fallbackEngine.verify(input);
-      }
+      const rawJson = verificationExecution.result.rawJson;
 
       const parsed = JSON.parse(rawJson);
       const confidence = typeof parsed.confidence === 'number' ? Math.max(0, Math.min(1, parsed.confidence)) : 0.5;

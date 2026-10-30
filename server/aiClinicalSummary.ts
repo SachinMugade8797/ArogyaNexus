@@ -3,6 +3,7 @@ import path from 'node:path';
 import { prisma } from '../lib/db/prisma';
 import { recordPath } from './recordStorage';
 import { PDFParse } from 'pdf-parse';
+import { executeWithKeyFallback } from './geminiKeyManager';
 
 export interface ClinicalSummaryResult {
   patient: {
@@ -174,7 +175,7 @@ export async function ensureDoctorRecordAccess(appointmentId: string, doctorId: 
  */
 export async function generateAiClinicalSummary(
   appointmentId: string,
-  options: { apiKey?: string; doctorId?: string } = {}
+  options: { apiKey?: string | string[]; doctorId?: string } = {}
 ): Promise<ClinicalSummaryResult> {
   // 1. Fetch Appointment Data
   const appointment = await prisma.appointment.findFirst({
@@ -276,28 +277,33 @@ export async function generateAiClinicalSummary(
   const recordsDir = path.resolve('.private-records');
 
   for (const rec of recordsRows) {
-    let filePath = '';
-    try {
-      filePath = recordPath(rec.file_key);
-    } catch {
-      filePath = path.join(recordsDir, rec.file_key);
-    }
+    let extractedText = 'Record file awaiting synchronization.';
 
-    let extractedText = '';
-    if (fs.existsSync(filePath)) {
-      extractedText = await extractPdfText(filePath);
-    } else {
-      extractedText = 'Record file awaiting synchronization.';
+    if (rec.file_key) {
+      let filePath = '';
+      try {
+        filePath = recordPath(rec.file_key);
+      } catch {
+        try {
+          filePath = path.join(recordsDir, String(rec.file_key));
+        } catch {
+          filePath = '';
+        }
+      }
+
+      if (filePath && fs.existsSync(filePath)) {
+        extractedText = await extractPdfText(filePath);
+      }
     }
 
     sourceRecords.push({
       id: rec.id,
-      title: rec.title,
-      category: rec.category,
-      issuer: rec.issuer,
-      recordDate: rec.record_date instanceof Date ? rec.record_date.toISOString() : String(rec.record_date),
-      fileName: rec.file_name,
-      fileKey: rec.file_key,
+      title: rec.title || 'Medical Record',
+      category: rec.category || 'OTHER',
+      issuer: rec.issuer || 'Healthcare Provider',
+      recordDate: rec.record_date instanceof Date ? rec.record_date.toISOString() : String(rec.record_date || new Date().toISOString()),
+      fileName: rec.file_name || 'record.pdf',
+      fileKey: rec.file_key || '',
       extractedText,
       viewUrl: `/api/doctor/records/${rec.id}/file?appointmentId=${appointment.id}`,
     });
@@ -351,24 +357,29 @@ export async function generateAiClinicalSummary(
     sourceRecords,
   };
 
-  // 8. Generate Summary using Gemini API (with resilient fallback)
-  const apiKey =
-    options.apiKey ||
-    process.env.GEMINI_API_KEY ||
-    process.env.GOOGLE_API_KEY ||
-    '';
-
+  // 8. Generate Summary using Gemini API (with multi-key automatic rotation and quota fallback)
   let aiOutput: ClinicalSummaryResult['aiOutput'];
 
-  if (apiKey) {
-    try {
-      aiOutput = await callGeminiClinicalAssistant(patientData, apiKey);
-    } catch (apiError) {
-      console.warn('[Gemini AI] Call failed or quota exceeded, using clinical fallback engine:', apiError);
-      aiOutput = fallbackClinicalSummary(patientData);
-    }
-  } else {
-    console.warn('[Gemini AI] No API key found, generating rule-based clinical summary');
+  try {
+    const { result, keyIndex, totalKeys, maskedKey } = await executeWithKeyFallback(
+      async (key: string) => {
+        return await callGeminiClinicalAssistant(patientData, key);
+      },
+      {
+        explicitKey: options.apiKey,
+        operationName: 'Clinical Patient Summary',
+      }
+    );
+
+    aiOutput = result;
+    console.log(
+      `[Gemini AI] Patient summary successfully generated using Key #${keyIndex + 1}/${totalKeys} (${maskedKey}) with model: ${aiOutput.modelUsed}`
+    );
+  } catch (apiError: any) {
+    console.warn(
+      '[Gemini AI] All configured Gemini API keys failed or reached quota, activating clinical rule-based engine:',
+      apiError?.message || apiError
+    );
     aiOutput = fallbackClinicalSummary(patientData);
   }
 
@@ -383,11 +394,10 @@ export async function generateAiClinicalSummary(
  */
 async function callGeminiClinicalAssistant(patientData: any, apiKey: string): Promise<ClinicalSummaryResult['aiOutput']> {
   const models = [
-    'gemini-3.5-flash-lite',
     'gemini-3.5-flash',
     'gemini-3.8-flash',
-    'gemini-2.5-flash',
-    'gemini-1.5-flash',
+    'gemini-3.5-flash-lite',
+    'gemini-flash-latest',
   ];
 
   const { patient, appointment, vitals, conditions, sourceRecords } = patientData;
@@ -484,7 +494,7 @@ Do not wrap JSON in markdown ticks if using responseMimeType: application/json.`
     try {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 12000);
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
 
       const response = await fetch(url, {
         method: 'POST',
@@ -503,7 +513,15 @@ Do not wrap JSON in markdown ticks if using responseMimeType: application/json.`
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`HTTP ${response.status} from model ${model}: ${errorText.slice(0, 160)}`);
+        const isQuota =
+          response.status === 429 ||
+          (response.status === 403 && /quota|resource_exhausted/i.test(errorText)) ||
+          /resource_exhausted|quota exceeded|rate limit|too many requests/i.test(errorText);
+
+        const err: any = new Error(`HTTP ${response.status} from model ${model}: ${errorText.slice(0, 160)}`);
+        err.status = response.status;
+        err.isQuotaExceeded = isQuota;
+        throw err;
       }
 
       const data = await response.json();
@@ -535,7 +553,11 @@ Do not wrap JSON in markdown ticks if using responseMimeType: application/json.`
       };
     } catch (err: any) {
       lastError = err;
-      // Try next model
+      // If this key reached its quota/rate limit, immediately re-throw to rotate to next key
+      if (err.isQuotaExceeded) {
+        throw err;
+      }
+      // If it was a model-specific issue (like 503 high demand or 404), try next model
       continue;
     }
   }

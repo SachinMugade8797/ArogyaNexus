@@ -757,9 +757,7 @@ app.post('/api/doctor/appointments/:id/ai-summary', async (req: Request, res: Re
     const apiKey =
       (req.headers['x-gemini-api-key'] as string) ||
       (req.body?.apiKey as string) ||
-      process.env.GEMINI_API_KEY ||
-      process.env.GOOGLE_API_KEY ||
-      '';
+      undefined;
 
     const result = await generateAiClinicalSummary(appointmentId, {
       apiKey,
