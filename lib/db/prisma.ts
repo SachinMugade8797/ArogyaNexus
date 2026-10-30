@@ -159,6 +159,17 @@ interface LocalDB {
     file_name: string;
     mime_type: string;
     size_bytes: number;
+    verification_status?: string;
+    verification_method?: string | null;
+    ai_confidence?: number | null;
+    ai_extracted_fields?: any;
+    ai_verified_at?: string | null;
+    review_requested_at?: string | null;
+    assigned_doctor_id?: string | null;
+    reviewed_by_doctor_id?: string | null;
+    doctor_reviewed_at?: string | null;
+    rejection_reason?: string | null;
+    doctor_review_notes?: string | null;
     deleted_at: string | null;
     created_at: string;
   }>;
@@ -943,6 +954,8 @@ const fallbackHealthRecord = {
       }
       if (args.where.deleted_at === null) list = list.filter((r: any) => !r.deleted_at);
       if (args.where.category) list = list.filter((r: any) => r.category === args.where.category);
+      if (args.where.verification_status) list = list.filter((r: any) => r.verification_status === args.where.verification_status);
+      if (args.where.assigned_doctor_id) list = list.filter((r: any) => r.assigned_doctor_id === args.where.assigned_doctor_id);
       if (args.where.record_date?.gte) {
         const gteTime = new Date(args.where.record_date.gte).getTime();
         list = list.filter((r: any) => new Date(r.record_date).getTime() >= gteTime);
@@ -960,19 +973,45 @@ const fallbackHealthRecord = {
     }
     list.sort((a: any, b: any) => new Date(b.record_date || b.created_at).getTime() - new Date(a.record_date || a.created_at).getTime());
 
-    if (args?.include?.doctor) {
-      list = list.map((r: any) => {
-        let doctor = null;
-        if (r.doctor_id) {
-          const doc = (db.doctor_profiles || []).find((d: any) => d.id === r.doctor_id);
-          if (doc) {
-            const user = (db.users || []).find((u: any) => u.id === doc.user_id);
-            doctor = { ...doc, user: { full_name: user?.full_name || 'Dr. Doctor' } };
-          }
+    list = list.map((r: any) => {
+      let doctor = null;
+      let assigned_doctor = null;
+      let reviewed_by_doctor = null;
+
+      if (args?.include?.doctor && r.doctor_id) {
+        const doc = (db.doctor_profiles || []).find((d: any) => d.id === r.doctor_id);
+        if (doc) {
+          const user = (db.users || []).find((u: any) => u.id === doc.user_id);
+          doctor = { ...doc, user: { full_name: user?.full_name || 'Dr. Doctor' } };
         }
-        return { ...r, doctor };
-      });
-    }
+      }
+
+      if (args?.include?.assigned_doctor && r.assigned_doctor_id) {
+        const doc = (db.doctor_profiles || []).find((d: any) => d.id === r.assigned_doctor_id);
+        if (doc) {
+          const user = (db.users || []).find((u: any) => u.id === doc.user_id);
+          assigned_doctor = { ...doc, user: { full_name: user?.full_name || 'Dr. Doctor' } };
+        }
+      }
+
+      if (args?.include?.reviewed_by_doctor && r.reviewed_by_doctor_id) {
+        const doc = (db.doctor_profiles || []).find((d: any) => d.id === r.reviewed_by_doctor_id);
+        if (doc) {
+          const user = (db.users || []).find((u: any) => u.id === doc.user_id);
+          reviewed_by_doctor = { ...doc, user: { full_name: user?.full_name || 'Dr. Doctor' } };
+        }
+      }
+
+      return {
+        ...r,
+        verification_status: r.verification_status || 'AI_VERIFIED',
+        verification_method: r.verification_method || (r.verification_status === 'DOCTOR_VERIFIED' ? 'DOCTOR' : 'AI'),
+        ai_confidence: r.ai_confidence !== undefined ? r.ai_confidence : 0.95,
+        doctor,
+        assigned_doctor,
+        reviewed_by_doctor,
+      };
+    });
 
     const skip = args?.skip || 0;
     const take = args?.take !== undefined ? args.take : list.length;
@@ -1003,6 +1042,17 @@ const fallbackHealthRecord = {
       file_name: args.data.file_name,
       mime_type: args.data.mime_type,
       size_bytes: args.data.size_bytes || 0,
+      verification_status: args.data.verification_status || 'PENDING',
+      verification_method: args.data.verification_method || null,
+      ai_confidence: args.data.ai_confidence !== undefined ? args.data.ai_confidence : null,
+      ai_extracted_fields: args.data.ai_extracted_fields || null,
+      ai_verified_at: args.data.ai_verified_at ? new Date(args.data.ai_verified_at).toISOString() : null,
+      review_requested_at: args.data.review_requested_at ? new Date(args.data.review_requested_at).toISOString() : null,
+      assigned_doctor_id: args.data.assigned_doctor_id || null,
+      reviewed_by_doctor_id: args.data.reviewed_by_doctor_id || null,
+      doctor_reviewed_at: args.data.doctor_reviewed_at ? new Date(args.data.doctor_reviewed_at).toISOString() : null,
+      rejection_reason: args.data.rejection_reason || null,
+      doctor_review_notes: args.data.doctor_review_notes || null,
       deleted_at: null,
       created_at: new Date().toISOString(),
     };

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Download, FileImage, FileText, Heart, Plus, Search, ShieldAlert, Trash2, UploadCloud, X } from 'lucide-react';
+import { Download, FileImage, FileText, Heart, Plus, Search, ShieldAlert, Sparkles, Trash2, UploadCloud, X } from 'lucide-react';
 import PatientLayout from '../../components/patient/PatientLayout';
 import { Avatar, Button, Card, EmptyState, ErrorState, Skeleton, StatusChip, Modal, ConfirmDialog } from '../../components/ui';
+import DocumentVerificationModal from '../../components/patient/DocumentVerificationModal';
 import { useActiveProfile } from '../../contexts/activeProfile';
 import { addVital, deleteRecord, deleteVital, getRecordConditions, getRecordVitals, getRecords, recordFileUrl, saveConditions, uploadRecord } from '../../api/records';
 import { formatPatientDate } from '../../utils/dates';
@@ -58,6 +59,7 @@ export default function Records() {
   const [busy, setBusy] = useState(false);
   const [recordToDelete, setRecordToDelete] = useState(null);
   const [previewRecord, setPreviewRecord] = useState(null);
+  const [verificationRecord, setVerificationRecord] = useState(null);
   const [vitalType, setVitalType] = useState('BLOOD_SUGAR_FASTING');
   const [uploadFile, setUploadFile] = useState(null);
 
@@ -145,9 +147,16 @@ export default function Records() {
     setBusy(true);
     setError('');
     try {
-      await uploadRecord(activeProfile.id, uploadDraft, uploadFile);
+      const uploadRes = await uploadRecord(activeProfile.id, uploadDraft, uploadFile);
       setModal('');
-      setNotice('Health record uploaded to database.');
+      const rec = uploadRes?.record;
+      if (rec?.verificationStatus === 'AI_VERIFIED') {
+        setNotice('Document uploaded and AI-verified successfully!');
+      } else if (rec?.verificationStatus === 'DOCTOR_REVIEW_REQUIRED') {
+        setNotice('Document uploaded. AI flagged for doctor review — you can select an attending doctor to request review.');
+      } else {
+        setNotice('Health record uploaded to database.');
+      }
       setPage(1);
       retry();
     } catch (failure) {
@@ -414,6 +423,7 @@ export default function Records() {
                         profileId={activeProfile.id}
                         onView={() => setPreviewRecord(record)}
                         onDelete={() => setRecordToDelete(record)}
+                        onVerify={() => setVerificationRecord(record)}
                       />
                     ))}
                   </div>
@@ -899,6 +909,18 @@ export default function Records() {
             busy={busy}
           />
         )}
+
+        {verificationRecord && (
+          <DocumentVerificationModal
+            record={verificationRecord}
+            profileId={activeProfile.id}
+            onClose={() => setVerificationRecord(null)}
+            onUpdated={() => {
+              retry();
+              setVerificationRecord(null);
+            }}
+          />
+        )}
       </main>
     </PatientLayout>
   );
@@ -976,8 +998,27 @@ function Sparkline({ values, label }) {
   );
 }
 
-function RecordRow({ record, profileId, onView, onDelete }) {
+function RecordRow({ record, profileId, onView, onDelete, onVerify }) {
   const Icon = record.mimeType?.startsWith('image/') ? FileImage : FileText;
+  const status = record.verificationStatus || 'PENDING';
+  const getBadgeStyle = () => {
+    switch (status) {
+      case 'AI_VERIFIED':
+        return { bg: '#e6fffa', border: '#99f6e4', color: '#0d9488', text: '✨ AI Verified' };
+      case 'DOCTOR_VERIFIED':
+        return { bg: '#f0fdf4', border: '#bbf7d0', color: '#15803d', text: '✓ Doctor Verified' };
+      case 'DOCTOR_REVIEW_PENDING':
+        return { bg: '#eff6ff', border: '#bfdbfe', color: '#1d4ed8', text: '⏳ Review Pending' };
+      case 'DOCTOR_REVIEW_REQUIRED':
+        return { bg: '#fffbeb', border: '#fde68a', color: '#b45309', text: '⚠️ Doctor Review Required' };
+      case 'REJECTED':
+        return { bg: '#fef2f2', border: '#fecaca', color: '#b91c1c', text: '✕ Rejected' };
+      default:
+        return { bg: '#f1f5f9', border: '#e2e8f0', color: '#64748b', text: 'Pending Verification' };
+    }
+  };
+  const badge = getBadgeStyle();
+
   return (
     <article className="clinical-record-row">
       <span className="record-file-icon" onClick={onView} style={{ cursor: 'pointer' }} title="Click to view file">
@@ -993,7 +1034,7 @@ function RecordRow({ record, profileId, onView, onDelete }) {
         <span className="record-issuer">
           {record.issuer} · {displayDate(record.recordDate)}
         </span>
-        <div className="record-owner-line">
+        <div className="record-owner-line" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
           {record.doctor ? (
             <>
               {record.doctor.photoUrl ? (
@@ -1020,9 +1061,38 @@ function RecordRow({ record, profileId, onView, onDelete }) {
               .replace('LAB REPORT', 'Lab Report')
               .replace('DISCHARGE SUMMARY', 'Discharge Summary')}
           />
+          <button
+            type="button"
+            onClick={onVerify}
+            title="Inspect AI validation details or request doctor review"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              padding: '2px 8px',
+              borderRadius: '12px',
+              fontSize: '11px',
+              fontWeight: 600,
+              background: badge.bg,
+              border: `1px solid ${badge.border}`,
+              color: badge.color,
+              cursor: 'pointer',
+              lineHeight: '1.4',
+            }}
+          >
+            {badge.text}
+          </button>
         </div>
       </div>
       <div className="record-actions">
+        <button
+          type="button"
+          className="patient-button light"
+          onClick={onVerify}
+          title="View document verification & review status"
+          style={{ padding: '0 8px', fontSize: '11px' }}
+        >
+          Status
+        </button>
         <button
           type="button"
           className="patient-button secondary"

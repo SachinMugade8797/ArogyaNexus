@@ -57,6 +57,8 @@ model DoctorProfile {
   rating_avg Float @default(0)
   rating_count Int @default(0)
   health_records HealthRecord[]
+  assigned_record_reviews HealthRecord[] @relation("AssignedDoctorReviews")
+  completed_record_reviews HealthRecord[] @relation("CompletedDoctorReviews")
   access_logs AccessLog[]
   visit_records VisitRecord[]
 
@@ -152,12 +154,31 @@ model HealthRecord {
   created_at DateTime @default(now())
   deleted_at DateTime?
   seed_key String? @unique
+
+  // Document Verification Fields
+  verification_status   String    @default("PENDING") // PENDING, AI_VERIFIED, DOCTOR_REVIEW_REQUIRED, DOCTOR_REVIEW_PENDING, DOCTOR_VERIFIED, REJECTED
+  verification_method   String?   // 'AI' | 'DOCTOR'
+  ai_confidence         Float?
+  ai_extracted_fields   Json?     // { patientName, issuer, recordDate, documentType, summary }
+  ai_verified_at        DateTime?
+  review_requested_at   DateTime?
+  assigned_doctor_id    String?
+  reviewed_by_doctor_id String?
+  doctor_reviewed_at    DateTime?
+  rejection_reason      String?
+  doctor_review_notes   String?
+
   patient Profile @relation(fields: [patient_id], references: [id], onDelete: Cascade)
   doctor DoctorProfile? @relation(fields: [doctor_id], references: [id], onDelete: SetNull)
+  assigned_doctor DoctorProfile? @relation("AssignedDoctorReviews", fields: [assigned_doctor_id], references: [id], onDelete: SetNull)
+  reviewed_by_doctor DoctorProfile? @relation("CompletedDoctorReviews", fields: [reviewed_by_doctor_id], references: [id], onDelete: SetNull)
   uploader User @relation(fields: [uploaded_by], references: [id], onDelete: Cascade)
   access_logs AccessLog[]
+
   @@index([patient_id, record_date])
   @@index([patient_id, category, record_date])
+  @@index([patient_id, verification_status])
+  @@index([assigned_doctor_id, verification_status])
   @@map("health_records")
 }
 

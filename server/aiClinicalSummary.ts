@@ -196,7 +196,7 @@ export async function generateAiClinicalSummary(
     email: '',
   };
 
-  let patientProf = (appointment.profile_id ? allProfiles.find((p: any) => p.id === appointment.profile_id) : null) ||
+  let patientProf: any = (appointment.profile_id ? allProfiles.find((p: any) => p.id === appointment.profile_id) : null) ||
     allProfiles.find((p: any) => p.user_id === appointment.patient_id && p.relation === 'SELF') ||
     allProfiles.find((p: any) => p.user_id === appointment.patient_id);
 

@@ -17,6 +17,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { vitalRangeStart, recordCategoryFilter } from '../lib/records/logic';
 import { generateAiClinicalSummary } from './aiClinicalSummary';
+import { defaultDocumentVerificationService } from './services/documentAiVerification';
 
 dotenv.config();
 
@@ -616,7 +617,7 @@ app.get('/api/doctor/appointments', async (req: Request, res: Response) => {
           name: patientName,
           age,
           gender: patientProf?.gender || 'Male',
-          photoUrl: patientProf?.photo_url || '',
+          photoUrl: (patientProf as any)?.photo_url || '',
           bloodGroup: patientProf?.blood_group || 'O+',
           allergies: Array.isArray(patientProf?.allergies) ? patientProf.allergies : [],
         },
@@ -797,14 +798,59 @@ function makeSamplePdf(title: string, subtitle = 'Patient Medical Document - Con
 // Doctor View Endpoint for Patient PDF Records
 app.get('/api/doctor/records/:id/file', async (req: Request, res: Response) => {
   try {
+    const cookieSession = getSession(req.cookies[SESSION_COOKIE_NAME]);
+    const session = cookieSession ?? (process.env.NODE_ENV !== 'production' && process.env.ALLOW_DEV_AUTH !== 'false' ? {
+      sessionId: 'dev-doc-session',
+      user: {
+        id: '22222222-2222-4222-a222-222222222222',
+        full_name: 'Dr. Ananya S. Sharma',
+        email: 'doctor@arogyanexus.com',
+        role: 'doctor' as const,
+        phone: '+91 98220 99999',
+      },
+      expiresAt: Date.now() + 86400000,
+    } : null);
+
+    if (!session || (session.user.role !== 'doctor' && session.user.role !== 'admin')) {
+      res.status(401).json({ success: false, error: 'Doctor authentication required.' });
+      return;
+    }
+
     const recordId = String(req.params.id);
     const row = await prisma.healthRecord.findFirst({
       where: { id: recordId, deleted_at: null },
+      include: { patient: true },
     });
 
     if (!row) {
       res.status(404).json({ success: false, error: 'Record not found.' });
       return;
+    }
+
+    if (session.user.role === 'doctor') {
+      const doc = await prisma.doctorProfile.findUnique({ where: { user_id: session.user.id } }) ||
+        (process.env.NODE_ENV !== 'production' ? await prisma.doctorProfile.findFirst({ where: { id: 'dp-approved-1' } }) : null);
+
+      if (!doc) {
+        res.status(403).json({ success: false, error: 'Doctor profile not found.' });
+        return;
+      }
+
+      const patientUserId = row.patient?.user_id || row.patient_id;
+      const appointment = await prisma.appointment.findFirst({
+        where: {
+          doctor_profile_id: doc.id,
+          OR: [
+            { patient_id: patientUserId },
+            { profile_id: row.patient_id }
+          ]
+        }
+      });
+
+      if (!appointment) {
+        res.status(403).json({ success: false, error: 'Unauthorized: No active appointment relationship with this patient.' });
+        return;
+      }
     }
 
     let filePath = '';
@@ -937,6 +983,17 @@ app.get(['/api/doctor/patients/:patientId/records', '/api/doctor/patient-records
       source: row.source,
       doctor: row.doctor ? { name: row.doctor.user?.full_name || 'Dr. Ananya Sharma', photoUrl: row.doctor.photo_url } : null,
       fileUrl: `/api/doctor/records/${row.id}/file`,
+      verificationStatus: row.verification_status || 'PENDING',
+      verificationMethod: row.verification_method || null,
+      aiConfidence: row.ai_confidence ?? null,
+      aiExtractedFields: row.ai_extracted_fields || null,
+      aiVerifiedAt: row.ai_verified_at || null,
+      reviewRequestedAt: row.review_requested_at || null,
+      assignedDoctorId: row.assigned_doctor_id || null,
+      reviewedByDoctorId: row.reviewed_by_doctor_id || null,
+      doctorReviewedAt: row.doctor_reviewed_at || null,
+      rejectionReason: row.rejection_reason || null,
+      doctorReviewNotes: row.doctor_review_notes || null,
     }));
 
     // 3. Fetch Vitals
@@ -1324,27 +1381,36 @@ const VITAL_TYPES = ['BLOOD_SUGAR_FASTING', 'BP_SYSTOLIC', 'BP_DIASTOLIC', 'CHOL
 const recordsQuery = z.object({ profileId: z.string().min(1) });
 async function recordsProfile(req: Request, res: Response, requested?: unknown) {
   const cookieSession = getSession(req.cookies[SESSION_COOKIE_NAME]);
-  const session = cookieSession ?? {
+  const session = cookieSession ?? (process.env.NODE_ENV !== 'production' && process.env.ALLOW_DEV_AUTH !== 'false' ? {
     sessionId: 'dev-session',
     user: {
       id: '33333333-3333-4333-a333-333333333333',
       full_name: 'Atharv Kavitake',
       email: 'u@gmail.com',
-      role: 'patient',
+      role: 'patient' as const,
       phone: '+1 (555) 019-2834',
     },
     expiresAt: Date.now() + 86400000,
-  };
+  } : null);
+
+  if (!session) {
+    res.status(401).json({ error: 'Authentication required.' });
+    return null;
+  }
+
   const parsed = recordsQuery.safeParse({ profileId: requested ?? req.query.profileId });
   if (!parsed.success) { res.status(400).json({ error: 'A valid profileId is required.' }); return null; }
   const relation: Record<string, string> = { me: 'SELF', mother: 'MOTHER', son: 'SON' };
   const alias = relation[parsed.data.profileId];
-  let profile = alias ? await prisma.profile.findFirst({ where: { user_id: session.user.id, relation: alias }, select: { id: true } }) : { id: parsed.data.profileId };
-  if (!profile || !profile.id) {
-    profile = await prisma.profile.findFirst({ where: { user_id: session.user.id }, select: { id: true } });
+  let profile = alias ? await prisma.profile.findFirst({ where: { user_id: session.user.id, relation: alias }, select: { id: true, name: true, user_id: true } }) : null;
+  if (!profile) {
+    profile = await prisma.profile.findFirst({ where: { id: parsed.data.profileId, user_id: session.user.id }, select: { id: true, name: true, user_id: true } });
+  }
+  if (!profile) {
+    profile = await prisma.profile.findFirst({ where: { user_id: session.user.id }, select: { id: true, name: true, user_id: true } });
   }
   const profileId = profile?.id || 'profile-self-1';
-  return { id: profileId, userId: session.user.id };
+  return { id: profileId, userId: session.user.id, name: profile?.name || session.user.full_name };
 }
 const mimeLabel = (mime: string) => mime === 'application/pdf' ? 'PDF' : mime === 'image/jpeg' ? 'JPG' : mime === 'image/png' ? 'PNG' : 'FILE';
 
@@ -1460,7 +1526,7 @@ app.patch('/api/patient/records/conditions', async (req, res) => {
   } catch (error) { console.error('[Records] condition update failed', error); res.status(500).json({ error: 'Could not save condition details.' }); }
 });
 
-app.get('/api/patient/records', async (req, res) => {
+app.get(['/api/patient/records', '/api/patient/documents'], async (req, res) => {
   const input = z.object({ profileId: z.string().min(1), category: z.enum(['ALL', ...RECORD_CATEGORIES]).default('ALL'), q: z.string().max(120).default(''), from: z.string().date().optional(), to: z.string().date().optional(), page: z.coerce.number().int().min(1).default(1), pageSize: z.coerce.number().int().min(1).max(50).default(8) }).safeParse(req.query);
   if (!input.success) { res.status(400).json({ error: 'Invalid records query.', details: input.error.flatten() }); return; }
   try {
@@ -1469,9 +1535,296 @@ app.get('/api/patient/records', async (req, res) => {
     const selectedCategory = recordCategoryFilter(input.data.category); if (selectedCategory) where.category = selectedCategory;
     if (input.data.q.trim()) where.OR = [{ title: { contains: input.data.q.trim(), mode: 'insensitive' } }, { issuer: { contains: input.data.q.trim(), mode: 'insensitive' } }];
     if (input.data.from || input.data.to) where.record_date = { ...(input.data.from ? { gte: new Date(`${input.data.from}T00:00:00`) } : {}), ...(input.data.to ? { lte: new Date(`${input.data.to}T23:59:59.999`) } : {}) };
-    const [rows, total] = await Promise.all([prisma.healthRecord.findMany({ where, include: { doctor: { include: { user: { select: { full_name: true } } } } }, orderBy: { record_date: 'desc' }, skip: (input.data.page - 1) * input.data.pageSize, take: input.data.pageSize }), prisma.healthRecord.count({ where })]);
-    res.json({ records: rows.map((row: any) => ({ id: row.id, title: row.title, issuer: row.issuer, recordDate: row.record_date, category: row.category, fileType: mimeLabel(row.mime_type), mimeType: row.mime_type, fileName: row.file_name, source: row.source, doctor: row.doctor ? { name: row.doctor.user.full_name, photoUrl: row.doctor.photo_url } : null })), page: input.data.page, pageSize: input.data.pageSize, total, hasMore: input.data.page * input.data.pageSize < total });
+    const [rows, total] = await Promise.all([
+      prisma.healthRecord.findMany({
+        where,
+        include: {
+          doctor: { include: { user: { select: { full_name: true } } } },
+          assigned_doctor: { include: { user: { select: { full_name: true } } } },
+          reviewed_by_doctor: { include: { user: { select: { full_name: true } } } },
+        },
+        orderBy: { record_date: 'desc' },
+        skip: (input.data.page - 1) * input.data.pageSize,
+        take: input.data.pageSize,
+      }),
+      prisma.healthRecord.count({ where }),
+    ]);
+
+    res.json({
+      records: rows.map((row: any) => ({
+        id: row.id,
+        title: row.title,
+        issuer: row.issuer,
+        recordDate: row.record_date,
+        category: row.category,
+        fileType: mimeLabel(row.mime_type),
+        mimeType: row.mime_type,
+        fileName: row.file_name,
+        source: row.source,
+        sizeBytes: row.size_bytes,
+        doctor: row.doctor ? { name: row.doctor.user?.full_name || 'Dr. Doctor', photoUrl: row.doctor.photo_url } : null,
+        verificationStatus: row.verification_status || 'PENDING',
+        verificationMethod: row.verification_method || null,
+        aiConfidence: row.ai_confidence ?? null,
+        aiExtractedFields: row.ai_extracted_fields || null,
+        aiVerifiedAt: row.ai_verified_at || null,
+        reviewRequestedAt: row.review_requested_at || null,
+        assignedDoctor: row.assigned_doctor ? {
+          id: row.assigned_doctor.id,
+          name: row.assigned_doctor.user?.full_name || 'Attending Physician',
+          speciality: row.assigned_doctor.speciality,
+          clinicName: row.assigned_doctor.clinic_name,
+        } : null,
+        reviewedByDoctor: row.reviewed_by_doctor ? {
+          id: row.reviewed_by_doctor.id,
+          name: row.reviewed_by_doctor.user?.full_name || 'Attending Physician',
+          speciality: row.reviewed_by_doctor.speciality,
+          clinicName: row.reviewed_by_doctor.clinic_name,
+        } : null,
+        doctorReviewedAt: row.doctor_reviewed_at || null,
+        rejectionReason: row.rejection_reason || null,
+        doctorReviewNotes: row.doctor_review_notes || null,
+      })),
+      page: input.data.page,
+      pageSize: input.data.pageSize,
+      total,
+      hasMore: input.data.page * input.data.pageSize < total,
+    });
   } catch (error) { console.error('[Records] list failed', error); res.status(500).json({ error: 'Could not load health records.' }); }
+});
+
+app.get(['/api/patient/records/eligible-doctors', '/api/patient/documents/eligible-doctors'], async (req, res) => {
+  try {
+    const profile = await recordsProfile(req, res);
+    if (!profile) return;
+
+    const appointments = await prisma.appointment.findMany({
+      where: {
+        OR: [
+          { patient_id: profile.userId },
+          { profile_id: profile.id },
+        ],
+      },
+      include: {
+        doctor: {
+          include: {
+            user: { select: { id: true, full_name: true, email: true } },
+          },
+        },
+      },
+    });
+
+    const seen = new Set<string>();
+    const doctors = appointments
+      .map((a: any) => a.doctor)
+      .filter((d: any) => {
+        if (!d || !d.id || seen.has(d.id)) return false;
+        seen.add(d.id);
+        return true;
+      })
+      .map((d: any) => ({
+        id: d.id,
+        name: d.user?.full_name || 'Dr. Specialist',
+        speciality: d.speciality || 'General Medicine',
+        clinicName: d.clinic_name || 'Medical Clinic',
+        photoUrl: d.photo_url || null,
+      }));
+
+    res.json({ success: true, doctors });
+  } catch (err: any) {
+    console.error('[Eligible Doctors] Error:', err);
+    res.status(500).json({ error: 'Could not load eligible doctors.' });
+  }
+});
+
+app.post(['/api/patient/records/:id/request-review', '/api/patient/documents/:id/request-review'], async (req, res) => {
+  try {
+    const profile = await recordsProfile(req, res);
+    if (!profile) return;
+
+    const schema = z.object({
+      doctorId: z.string().min(1),
+      notes: z.string().max(500).optional(),
+    });
+
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Select a valid doctor for review.', details: parsed.error.flatten() });
+      return;
+    }
+
+    const { doctorId, notes } = parsed.data;
+    const recordId = String(req.params.id);
+
+    const record = await prisma.healthRecord.findFirst({
+      where: { id: recordId, patient_id: profile.id, deleted_at: null },
+    });
+
+    if (!record) {
+      res.status(404).json({ error: 'Record not found.' });
+      return;
+    }
+
+    // Verify this doctor actually has an appointment relationship with this patient
+    const hasRelationship = await prisma.appointment.findFirst({
+      where: {
+        doctor_profile_id: doctorId,
+        OR: [
+          { patient_id: profile.userId },
+          { profile_id: profile.id },
+        ],
+      },
+    });
+
+    if (!hasRelationship) {
+      res.status(403).json({ error: 'You can only request review from doctors with whom you have an appointment.' });
+      return;
+    }
+
+    const updated = await prisma.healthRecord.update({
+      where: { id: record.id },
+      data: {
+        verification_status: 'DOCTOR_REVIEW_PENDING',
+        assigned_doctor_id: doctorId,
+        review_requested_at: new Date(),
+        doctor_review_notes: notes?.trim() || null,
+      },
+    });
+
+    res.json({
+      success: true,
+      status: 'DOCTOR_REVIEW_PENDING',
+      assignedDoctorId: doctorId,
+      record: {
+        id: updated.id,
+        verificationStatus: updated.verification_status,
+        assignedDoctorId: updated.assigned_doctor_id,
+        reviewRequestedAt: updated.review_requested_at,
+      },
+    });
+  } catch (err: any) {
+    console.error('[Request Doctor Review] Error:', err);
+    res.status(500).json({ error: 'Could not submit review request.' });
+  }
+});
+
+app.post('/api/doctor/records/:id/review', async (req, res) => {
+  try {
+    const cookieSession = getSession(req.cookies[SESSION_COOKIE_NAME]);
+    const session = cookieSession ?? (process.env.NODE_ENV !== 'production' && process.env.ALLOW_DEV_AUTH !== 'false' ? {
+      sessionId: 'dev-doc-session',
+      user: {
+        id: '22222222-2222-4222-a222-222222222222',
+        full_name: 'Dr. Ananya S. Sharma',
+        email: 'doctor@arogyanexus.com',
+        role: 'doctor' as const,
+        phone: '+91 98220 99999',
+      },
+      expiresAt: Date.now() + 86400000,
+    } : null);
+
+    if (!session || (session.user.role !== 'doctor' && session.user.role !== 'admin')) {
+      res.status(401).json({ error: 'Doctor authentication required.' });
+      return;
+    }
+
+    const docProfile = await prisma.doctorProfile.findUnique({
+      where: { user_id: session.user.id },
+    }) || (process.env.NODE_ENV !== 'production' ? await prisma.doctorProfile.findFirst({ where: { id: 'dp-approved-1' } }) : null);
+
+    if (!docProfile) {
+      res.status(403).json({ error: 'Doctor profile not found.' });
+      return;
+    }
+
+    const schema = z.object({
+      decision: z.enum(['DOCTOR_VERIFIED', 'REJECTED']),
+      notes: z.string().max(1000).optional(),
+      rejectionReason: z.string().max(500).optional(),
+    });
+
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Invalid review payload.', details: parsed.error.flatten() });
+      return;
+    }
+
+    const { decision, notes, rejectionReason } = parsed.data;
+    if (decision === 'REJECTED' && (!rejectionReason || !rejectionReason.trim())) {
+      res.status(400).json({ error: 'A specific reason is required when rejecting a medical document.' });
+      return;
+    }
+
+    const recordId = String(req.params.id);
+    const record = await prisma.healthRecord.findFirst({
+      where: { id: recordId, deleted_at: null },
+      include: { patient: true },
+    });
+
+    if (!record) {
+      res.status(404).json({ error: 'Record not found.' });
+      return;
+    }
+
+    // Verify appointment relationship between this doctor and the patient
+    const patientUserId = record.patient?.user_id || record.patient_id;
+    const appointment = await prisma.appointment.findFirst({
+      where: {
+        doctor_profile_id: docProfile.id,
+        OR: [
+          { patient_id: patientUserId },
+          { profile_id: record.patient_id },
+        ],
+      },
+    });
+
+    if (!appointment && session.user.role !== 'admin') {
+      res.status(403).json({ error: 'Unauthorized: You can only review documents for patients you have an appointment relationship with.' });
+      return;
+    }
+
+    const updated = await prisma.healthRecord.update({
+      where: { id: record.id },
+      data: {
+        verification_status: decision,
+        verification_method: 'DOCTOR',
+        reviewed_by_doctor_id: docProfile.id,
+        doctor_reviewed_at: new Date(),
+        doctor_review_notes: notes?.trim() || null,
+        rejection_reason: decision === 'REJECTED' ? rejectionReason!.trim() : null,
+      },
+    });
+
+    try {
+      await prisma.accessLog.create({
+        data: {
+          patient_id: record.patient_id,
+          doctor_id: docProfile.id,
+          action: `DOCUMENT_REVIEW_${decision}`,
+          record_id: record.id,
+          record_title: record.title,
+        },
+      });
+    } catch {
+      // Continue even if logging fails
+    }
+
+    res.json({
+      success: true,
+      record: {
+        id: updated.id,
+        verificationStatus: updated.verification_status,
+        verificationMethod: updated.verification_method,
+        reviewedByDoctorId: updated.reviewed_by_doctor_id,
+        doctorReviewedAt: updated.doctor_reviewed_at,
+        doctorReviewNotes: updated.doctor_review_notes,
+        rejectionReason: updated.rejection_reason,
+      },
+    });
+  } catch (err: any) {
+    console.error('[Doctor Record Review] Error:', err);
+    res.status(500).json({ error: 'Could not process document review.' });
+  }
 });
 
 app.get('/api/patient/records/access-history', async (req, res) => {
@@ -1481,7 +1834,7 @@ app.get('/api/patient/records/access-history', async (req, res) => {
   catch (error) { console.error('[Records] access history failed', error); res.status(500).json({ error: 'Could not load access history.' }); }
 });
 
-app.get('/api/patient/records/:id/file', async (req, res) => {
+app.get(['/api/patient/records/:id/file', '/api/patient/documents/:id/file'], async (req, res) => {
   const input = z.object({
     profileId: z.string().min(1).default('me'),
     disposition: z.enum(['inline', 'attachment']).default('inline'),
@@ -1518,19 +1871,7 @@ app.get('/api/patient/records/:id/file', async (req, res) => {
   }
 });
 
-app.post('/api/patient/records', async (req, res) => {
-  const cookieSession = getSession(req.cookies[SESSION_COOKIE_NAME]);
-  const session = cookieSession ?? {
-    sessionId: 'dev-session',
-    user: {
-      id: '33333333-3333-4333-a333-333333333333',
-      full_name: 'Atharv Kavitake',
-      email: 'u@gmail.com',
-      role: 'patient',
-      phone: '+1 (555) 019-2834',
-    },
-    expiresAt: Date.now() + 86400000,
-  };
+app.post(['/api/patient/records', '/api/patient/documents'], async (req, res) => {
   let storedKey: string | null = null;
   try {
     const multipart = await readRecordMultipart(req);
@@ -1545,11 +1886,22 @@ app.post('/api/patient/records', async (req, res) => {
       return;
     }
 
+    const recordDateObj = new Date(`${rawDate}T12:00:00`);
+    if (isNaN(recordDateObj.getTime()) || recordDateObj.getTime() > Date.now() + 86400000) {
+      res.status(400).json({ error: 'Record date cannot be in the future.' });
+      return;
+    }
+
     const profileId = multipart.fields.profileId || 'me';
     const profile = await recordsProfile(req, res, profileId);
     if (!profile) return;
 
     const detected = detectRecordMime(multipart.file.bytes, multipart.file.filename);
+    if (!detected) {
+      res.status(400).json({ error: 'Unsupported file format. Please upload a PDF, JPG, or PNG document.' });
+      return;
+    }
+
     const safeName = Array.from(path.basename(multipart.file.filename)).filter((character) => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127).join('').slice(0, 180);
     const fileName = `${path.parse(safeName).name || 'health-record'}.${detected.extension}`;
 
@@ -1565,11 +1917,51 @@ app.post('/api/patient/records', async (req, res) => {
           issuer = `${issuer} (${doctorName})`;
         }
       } catch {
-        // Continue without error even if doctor lookup fails
         if (!issuer.toLowerCase().includes(doctorName.toLowerCase())) {
           issuer = `${issuer} (${doctorName})`;
         }
       }
+    }
+
+    // Run automated AI validation
+    let verification: any = {
+      status: 'PENDING',
+      method: 'AI',
+      confidence: 0,
+      extractedFields: null,
+      verifiedAt: null,
+    };
+
+    try {
+      verification = await defaultDocumentVerificationService.verifyDocument({
+        fileBuffer: multipart.file.bytes,
+        fileName,
+        mimeType: detected.mimeType,
+        category: rawCategory,
+        title: rawTitle,
+        issuer,
+        recordDate: rawDate,
+        expectedPatientName: profile.name,
+      });
+    } catch (aiErr: any) {
+      console.warn('[Records Upload] AI verification failed, routing to doctor review:', aiErr?.message);
+      verification = {
+        status: 'DOCTOR_REVIEW_REQUIRED',
+        method: 'AI',
+        confidence: 0,
+        extractedFields: {
+          patientName: null,
+          issuer: null,
+          documentDate: null,
+          documentType: rawCategory,
+          readable: false,
+          categoryMatches: false,
+          metadataMatches: false,
+          summary: 'Automated AI check could not complete. File preserved for attending doctor review.',
+          reason: aiErr?.message || 'AI verification failure',
+        },
+        verifiedAt: null,
+      };
     }
 
     storedKey = await storeRecord(multipart.file.bytes, detected.extension);
@@ -1579,18 +1971,31 @@ app.post('/api/patient/records', async (req, res) => {
         category: rawCategory,
         title: rawTitle,
         issuer: issuer,
-        record_date: new Date(`${rawDate}T12:00:00`),
+        record_date: recordDateObj,
         doctor_id: doctorId,
-        uploaded_by: session.user.id,
+        uploaded_by: profile.userId,
         source: 'PATIENT_UPLOAD',
         file_key: storedKey,
         file_name: fileName,
         mime_type: detected.mimeType,
         size_bytes: multipart.file.bytes.length,
+        verification_status: verification.status,
+        verification_method: verification.method,
+        ai_confidence: verification.confidence,
+        ai_extracted_fields: verification.extractedFields,
+        ai_verified_at: verification.verifiedAt,
       },
     });
 
-    res.status(201).json({ success: true, id: record.id });
+    res.status(201).json({
+      success: true,
+      id: record.id,
+      verificationStatus: record.verification_status,
+      verificationMethod: record.verification_method,
+      aiConfidence: record.ai_confidence,
+      aiExtractedFields: record.ai_extracted_fields,
+      aiVerifiedAt: record.ai_verified_at,
+    });
   } catch (error: any) {
     if (storedKey) await removeRecord(storedKey).catch(() => undefined);
     res.status(400).json({ error: error?.message || 'Could not upload this record.' });

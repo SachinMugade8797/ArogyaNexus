@@ -18,6 +18,7 @@ import {
   Heart,
   Droplet,
   ShieldAlert,
+  ShieldCheck,
   Stethoscope,
   FileImage,
   RefreshCw,
@@ -25,6 +26,7 @@ import {
 } from 'lucide-react';
 import DoctorSidebar from '../../components/doctor/DoctorSidebar';
 import AiClinicalSummaryModal from '../../components/doctor/AiClinicalSummaryModal';
+import DoctorReviewModal from '../../components/doctor/DoctorReviewModal';
 import { getCurrentUser, logoutUser } from '../../services/auth/authService';
 import { getDoctorPatientRecords, getAppointment } from '../../api/doctorAppointments';
 import '../../styles/dashboard.css';
@@ -56,6 +58,7 @@ export default function DoctorPatientRecords() {
   const [activeTab, setActiveTab] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [previewRecord, setPreviewRecord] = useState(null);
+  const [reviewRecord, setReviewRecord] = useState(null);
   const [showAiSummary, setShowAiSummary] = useState(false);
   const [summaryAppointment, setSummaryAppointment] = useState(null);
 
@@ -524,6 +527,63 @@ export default function DoctorPatientRecords() {
                                   <span className={`record-badge ${catKey}`}>
                                     {(rec.category || 'Record').replace(/_/g, ' ')}
                                   </span>
+                                  {rec.verificationStatus && (
+                                    <span
+                                      style={{
+                                        fontSize: '11px',
+                                        fontWeight: 600,
+                                        padding: '2px 8px',
+                                        borderRadius: '12px',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                        marginLeft: '6px',
+                                        background:
+                                          rec.verificationStatus === 'DOCTOR_VERIFIED'
+                                            ? '#dcfce7'
+                                            : rec.verificationStatus === 'AI_VERIFIED'
+                                            ? '#ccfbf1'
+                                            : rec.verificationStatus === 'DOCTOR_REVIEW_PENDING'
+                                            ? '#dbeafe'
+                                            : rec.verificationStatus === 'REJECTED'
+                                            ? '#fee2e2'
+                                            : '#fef3c7',
+                                        color:
+                                          rec.verificationStatus === 'DOCTOR_VERIFIED'
+                                            ? '#15803d'
+                                            : rec.verificationStatus === 'AI_VERIFIED'
+                                            ? '#0f766e'
+                                            : rec.verificationStatus === 'DOCTOR_REVIEW_PENDING'
+                                            ? '#1d4ed8'
+                                            : rec.verificationStatus === 'REJECTED'
+                                            ? '#b91c1c'
+                                            : '#b45309',
+                                        border: '1px solid',
+                                        borderColor:
+                                          rec.verificationStatus === 'DOCTOR_VERIFIED'
+                                            ? '#86efac'
+                                            : rec.verificationStatus === 'AI_VERIFIED'
+                                            ? '#5eead4'
+                                            : rec.verificationStatus === 'DOCTOR_REVIEW_PENDING'
+                                            ? '#93c5fd'
+                                            : rec.verificationStatus === 'REJECTED'
+                                            ? '#fca5a5'
+                                            : '#fde68a',
+                                      }}
+                                    >
+                                      {rec.verificationStatus === 'DOCTOR_VERIFIED'
+                                        ? '✓ Doctor Verified'
+                                        : rec.verificationStatus === 'AI_VERIFIED'
+                                        ? '✨ AI Verified'
+                                        : rec.verificationStatus === 'DOCTOR_REVIEW_PENDING'
+                                        ? '⏳ Review Requested'
+                                        : rec.verificationStatus === 'DOCTOR_REVIEW_REQUIRED'
+                                        ? '⚠️ Review Required'
+                                        : rec.verificationStatus === 'REJECTED'
+                                        ? '✕ Rejected'
+                                        : 'Pending'}
+                                    </span>
+                                  )}
                                 </div>
                                 <div className="record-meta-sub">
                                   <span>{rec.issuer || 'Hospital / Diagnostic Center'}</span>
@@ -543,6 +603,20 @@ export default function DoctorPatientRecords() {
                             </div>
 
                             <div className="record-actions-group">
+                              <button
+                                type="button"
+                                className="btn-record-view"
+                                onClick={() => setReviewRecord(rec)}
+                                style={{
+                                  background: rec.verificationStatus === 'DOCTOR_REVIEW_PENDING' ? '#0d9488' : undefined,
+                                  color: rec.verificationStatus === 'DOCTOR_REVIEW_PENDING' ? '#ffffff' : undefined,
+                                  borderColor: rec.verificationStatus === 'DOCTOR_REVIEW_PENDING' ? '#0d9488' : undefined,
+                                }}
+                                title="Review and verify this patient document"
+                              >
+                                <ShieldCheck size={14} />
+                                <span>{rec.verificationStatus === 'DOCTOR_VERIFIED' ? 'Reviewed' : 'Review'}</span>
+                              </button>
                               <button
                                 type="button"
                                 className="btn-record-view"
@@ -776,6 +850,18 @@ export default function DoctorPatientRecords() {
         <AiClinicalSummaryModal
           appointment={summaryAppointment}
           onClose={() => setShowAiSummary(false)}
+        />
+      )}
+
+      {/* 5. Doctor Document Review Modal */}
+      {reviewRecord && (
+        <DoctorReviewModal
+          record={reviewRecord}
+          onClose={() => setReviewRecord(null)}
+          onReviewed={() => {
+            loadRecords();
+            setReviewRecord(null);
+          }}
         />
       )}
     </div>
