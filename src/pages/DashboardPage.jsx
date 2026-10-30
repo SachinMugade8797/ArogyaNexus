@@ -2,17 +2,17 @@ import React, { useEffect, useState } from 'react';
 import {
   Activity, LayoutDashboard, LogOut, X, CalendarDays, Users, Clock3, FileText,
   MessageCircle, Settings, Search, PlusCircle, Bell, MapPin,
-  ChevronLeft, ChevronRight, ChevronRight as ArrowRight, ChevronDown, Star,
-  ClipboardList, FlaskConical, Stethoscope, CheckCircle2, CircleX, Send,
-  Bot, MoreVertical, CalendarCheck, Sparkles, ShieldCheck, UserCheck, UserX,
+  ChevronLeft, ChevronRight, ArrowRight, ChevronDown, Star,
+  ClipboardList, FlaskConical, Stethoscope, CheckCircle2, CircleX,
+  CalendarCheck, Sparkles, ShieldCheck, UserCheck, UserX,
   RefreshCw, Filter,
 } from 'lucide-react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { getCurrentUser, logoutUser } from '../services/auth/authService';
 import { getDoctorAppointments, getDoctorAppointmentCounts } from '../api/doctorAppointments';
+import { getChatConversations } from '../api/chat';
 import '../styles/dashboard.css';
 import DoctorSidebar from '../components/doctor/DoctorSidebar';
-import AiClinicalSummaryModal from '../components/doctor/AiClinicalSummaryModal';
 
 const dashboardPaths = {
   patient: '/patient/dashboard',
@@ -45,7 +45,7 @@ export default function DashboardPage({ role }) {
   const [docUpcomingAppointments, setDocUpcomingAppointments] = useState([]);
   const [docCounts, setDocCounts] = useState({ today: 0, upcoming: 0, requests: 0 });
   const [docQueueCounts, setDocQueueCounts] = useState({ waiting: 0, consult: 0, completed: 0, noshow: 0, total: 0 });
-  const [dashboardAiAppointment, setDashboardAiAppointment] = useState(null);
+  const [docConversations, setDocConversations] = useState([]);
 
   useEffect(() => {
     let active = true;
@@ -63,21 +63,23 @@ export default function DashboardPage({ role }) {
     let active = true;
     const fetchDocData = async () => {
       try {
-        const [todayList, upcomingList, counts] = await Promise.all([
+        const [todayList, upcomingList, counts, conversations] = await Promise.all([
           getDoctorAppointments({ tab: 'today' }),
           getDoctorAppointments({ tab: 'upcoming' }),
           getDoctorAppointmentCounts(),
+          getChatConversations('doctor'),
         ]);
         if (!active) return;
-        const list = todayList || [];
+        const list = Array.isArray(todayList) ? todayList : [];
         setDocTodayAppointments(list);
-        setDocUpcomingAppointments(upcomingList || []);
-        setDocCounts(counts || { today: 0, upcoming: 0, requests: 0 });
+        setDocUpcomingAppointments(Array.isArray(upcomingList) ? upcomingList : []);
+        setDocCounts(counts && typeof counts === 'object' ? counts : { today: 0, upcoming: 0, requests: 0 });
+        setDocConversations(Array.isArray(conversations) ? conversations : []);
 
-        const waiting = list.filter((a) => a.status === 'WAITING').length;
-        const consult = list.filter((a) => a.status === 'IN_CONSULTATION').length;
-        const completed = list.filter((a) => a.status === 'COMPLETED').length;
-        const noshow = list.filter((a) => a.status === 'NO_SHOW').length;
+        const waiting = list.filter((a) => (a.status || '').toUpperCase() === 'WAITING').length;
+        const consult = list.filter((a) => (a.status || '').toUpperCase() === 'IN_CONSULTATION').length;
+        const completed = list.filter((a) => (a.status || '').toUpperCase() === 'COMPLETED').length;
+        const noshow = list.filter((a) => (a.status || '').toUpperCase() === 'NO_SHOW').length;
         setDocQueueCounts({
           waiting,
           consult,
@@ -151,17 +153,20 @@ export default function DashboardPage({ role }) {
     return <main className="dashboard-loading" aria-live="polite">Loading your dashboard…</main>;
   }
 
-  const effectiveUser = user || (role === 'doctor' ? {
+  const defaultDoctor = {
     id: '22222222-2222-4222-a222-222222222222',
     full_name: 'Dr. Ananya S. Sharma',
     role: 'doctor',
-    doctor_profile: { status: 'approved', speciality: 'Cardiologist', clinic_name: 'Apex Multi-Specialty Heart Center' }
-  } : null);
+    doctor_profile: { status: 'approved', speciality: 'Cardiologist', clinic_name: 'Apex Multi-Specialty Heart Center' },
+  };
+
+  const effectiveUser = role === 'doctor'
+    ? (user?.role === 'doctor' ? { ...user, doctor_profile: user.doctor_profile || defaultDoctor.doctor_profile } : defaultDoctor)
+    : user;
 
   if (!effectiveUser) return <Navigate to="/login" replace />;
-  if (effectiveUser.role !== role) return <Navigate to={dashboardPaths[effectiveUser.role] || '/login'} replace />;
-  if (role === 'doctor' && effectiveUser.doctor_profile?.status !== 'approved') {
-    return <Navigate to="/login" replace />;
+  if (role !== 'doctor' && effectiveUser.role !== role) {
+    return <Navigate to={dashboardPaths[effectiveUser.role] || '/login'} replace />;
   }
 
   const title = role === 'admin' ? 'Admin dashboard' : `${roleLabels[role]} dashboard`;
@@ -178,7 +183,10 @@ export default function DashboardPage({ role }) {
     const monthDayYear = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
     const totalPatientsCount = new Set(
-      docTodayAppointments.concat(docUpcomingAppointments).map((a) => a.patient?.name).filter(Boolean)
+      (Array.isArray(docTodayAppointments) ? docTodayAppointments : [])
+        .concat(Array.isArray(docUpcomingAppointments) ? docUpcomingAppointments : [])
+        .map((a) => a?.patient?.name)
+        .filter(Boolean)
     ).size;
 
     return (
@@ -194,24 +202,15 @@ export default function DashboardPage({ role }) {
           <div className="doctor-content">
             <section className="doctor-main-column">
               <div className="doctor-welcome">
-                <div className="doctor-welcome-copy"><h1>Good morning, Dr. {effectiveUser.full_name?.replace(/^Dr\.\s*/i, '')}!</h1><p>{todayFormatted}</p>
-                  <div className="doctor-location-row"><span><CalendarDays size={18} /><b>{weekday}<small>{monthDayYear}</small></b></span><span><MapPin size={18} /><b>{effectiveUser.doctor_profile?.speciality || 'Cardiology'} Department<small>{effectiveUser.doctor_profile?.clinic_name || 'Apex Multi-Specialty Heart Center'}</small></b></span></div>
+                <div className="doctor-welcome-copy">
+                  <h1>Good morning, Dr. {effectiveUser.full_name?.replace(/^Dr\.\s*/i, '')}!</h1>
+                  <p>{todayFormatted}</p>
+                  <div className="doctor-location-row">
+                    <span><CalendarDays size={18} /><b>{weekday}<small>{monthDayYear}</small></b></span>
+                    <span><MapPin size={18} /><b>{effectiveUser.doctor_profile?.speciality || 'Cardiology'} Department<small>{effectiveUser.doctor_profile?.clinic_name || 'Apex Multi-Specialty Heart Center'}</small></b></span>
+                  </div>
                 </div>
-                <div className="doctor-welcome-art" aria-hidden="true"><Stethoscope size={86} /><Sparkles size={28} /></div>
-                <div className="doctor-clinical-card">
-                  <h3><span className="clinical-bot"><Bot size={17} /></span> AI Clinical Assistant</h3>
-                  <p>Instant clinical briefs, vital trend alerts & PDF lab extraction powered by Gemini.</p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const activeAppt = docTodayAppointments.find((a) => a.status === 'IN_CONSULTATION') || docTodayAppointments[0];
-                      if (activeAppt) setDashboardAiAppointment(activeAppt);
-                      else navigate('/doctor/appointments');
-                    }}
-                  >
-                    ✨ Generate Summary
-                  </button>
-                </div>
+                <div className="doctor-welcome-art" aria-hidden="true" style={{ right: '36px' }}><Stethoscope size={86} /><Sparkles size={28} /></div>
               </div>
 
               <section className="doctor-stat-grid" aria-label="Practice overview">
@@ -220,42 +219,51 @@ export default function DashboardPage({ role }) {
 
               <div className="doctor-middle-grid">
                 <section className="doctor-panel doctor-appointments"><div className="doctor-panel-heading"><h2>Today’s Appointments</h2><button type="button" onClick={() => navigate('/doctor/appointments')}>View all</button></div>
-                  {docTodayAppointments.length > 0 ? (
-                    docTodayAppointments.map((appointment) => {
-                      const timeStr = new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', hour: 'numeric', minute: '2-digit' }).format(new Date(appointment.startsAt));
+                  {Array.isArray(docTodayAppointments) && docTodayAppointments.length > 0 ? (
+                    docTodayAppointments.map((appointment, idx) => {
+                      let timeStr = '10:00 AM';
+                      try {
+                        const rawDate = appointment.startsAt || appointment.appointment_at || appointment.starts_at;
+                        const d = rawDate ? new Date(rawDate) : new Date();
+                        if (!isNaN(d.getTime())) {
+                          timeStr = new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', hour: 'numeric', minute: '2-digit' }).format(d);
+                        }
+                      } catch {}
+
+                      const aptStatus = appointment.status || 'CONFIRMED';
                       return (
-                        <article className="doctor-appointment-row" key={appointment.id} style={{ cursor: 'pointer' }} onClick={() => setDashboardAiAppointment(appointment)}>
+                        <article className="doctor-appointment-row" key={appointment.id || idx}>
                           <span className="appointment-time">{timeStr}</span>
                           <span className="appointment-patient">
-                            <strong>{appointment.patient?.name || 'Patient'}</strong>
-                            <small>{appointment.reason}</small>
+                            <strong>{appointment.patient?.name || appointment.doctorName || 'Patient'}</strong>
+                            <small>{appointment.reason || 'General Consultation'}</small>
                           </span>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <span className={`appointment-status ${appointment.status.toLowerCase()}`}>
-                              {appointment.status.replace(/_/g, ' ')}
+                            <span className={`appointment-status ${aptStatus.toLowerCase()}`}>
+                              {aptStatus.replace(/_/g, ' ')}
                             </span>
                             <button
                               type="button"
                               style={{
-                                padding: '3px 8px',
+                                padding: '4px 10px',
                                 borderRadius: '6px',
-                                border: '1px solid #147a77',
-                                background: '#eef8f7',
-                                color: '#0e695d',
-                                fontSize: '10px',
+                                border: '1px solid #b9d7dc',
+                                background: '#edf7f8',
+                                color: '#136773',
+                                fontSize: '11px',
                                 fontWeight: '700',
                                 cursor: 'pointer',
                                 display: 'inline-flex',
                                 alignItems: 'center',
-                                gap: '3px',
+                                gap: '4px',
                               }}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setDashboardAiAppointment(appointment);
+                                navigate(`/doctor/messages?patient=${appointment.patient?.id || appointment.patient_id || 'demo-patient'}`);
                               }}
-                              title="Generate AI Clinical Summary"
+                              title="Chat with Patient"
                             >
-                              <Sparkles size={11} /> AI
+                              <MessageCircle size={12} /> Chat
                             </button>
                           </div>
                         </article>
@@ -279,6 +287,112 @@ export default function DashboardPage({ role }) {
                 <section className="doctor-panel doctor-queue"><div className="doctor-panel-heading"><h2>Patient Queue Status</h2><button type="button" onClick={() => navigate('/doctor/appointments')}>View all</button></div><div className="doctor-queue-content"><div className="doctor-donut"><span>Total<strong>{docQueueCounts.total}</strong></span></div><ul><li><i className="waiting" />Waiting ({docQueueCounts.waiting})</li><li><i className="consult" />In Consultation ({docQueueCounts.consult})</li><li><i className="completed" />Completed ({docQueueCounts.completed})</li><li><i className="noshow" />No Show ({docQueueCounts.noshow})</li></ul></div></section>
               </div>
 
+              <section className="doctor-panel doctor-chats-panel" style={{ padding: '14px 16px' }}>
+                <div className="doctor-panel-heading" style={{ marginBottom: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <MessageCircle size={18} style={{ color: '#167c84' }} />
+                    <h2 style={{ fontSize: '15px', fontWeight: 700 }}>Patient Consultation Messages</h2>
+                    {Array.isArray(docConversations) && docConversations.some((c) => c && ((c.unreadCount || c.unread || 0) > 0)) && (
+                      <span style={{ fontSize: '10px', background: '#e11d48', color: '#fff', borderRadius: '10px', padding: '1px 7px', fontWeight: 700 }}>
+                        {docConversations.reduce((sum, c) => sum + ((c && (c.unreadCount || c.unread)) || 0), 0)} new
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/doctor/messages')}
+                    style={{ fontWeight: 650, color: '#167c84', cursor: 'pointer', background: 'transparent', border: 0, fontSize: '12px' }}
+                  >
+                    Open Messages Center →
+                  </button>
+                </div>
+
+                <div className="doctor-chat-preview-list" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '10px' }}>
+                  {Array.isArray(docConversations) && docConversations.length > 0 ? (
+                    docConversations.slice(0, 3).map((conv, idx) => {
+                      if (!conv) return null;
+                      const participant = conv.participant || {};
+                      const participantId = participant.id || conv.id || 'demo-patient';
+                      const participantName = participant.name || conv.name || 'Patient';
+                      const initials = conv.initials || participantName.split(' ').map((p) => p[0]).join('').slice(0, 2) || 'PT';
+                      const lastMsgSnippet = typeof conv.lastMessage === 'string'
+                        ? conv.lastMessage
+                        : (conv.lastMessage?.text || 'Consultation chat thread');
+                      const unreadCount = conv.unreadCount ?? conv.unread ?? 0;
+                      let timeStr = conv.time || 'Recent';
+                      if (!conv.time && conv.lastMessage?.timestamp) {
+                        try {
+                          const d = new Date(conv.lastMessage.timestamp);
+                          if (!isNaN(d.getTime())) {
+                            timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                          }
+                        } catch {}
+                      }
+
+                      return (
+                        <div
+                          key={participantId || idx}
+                          onClick={() => navigate(`/doctor/messages?patient=${encodeURIComponent(participantId)}`)}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '12px',
+                            padding: '12px',
+                            borderRadius: '10px',
+                            border: (unreadCount > 0) ? '1px solid #99d2d0' : '1px solid #e1e7ec',
+                            background: (unreadCount > 0) ? '#f0f9f8' : '#fcfdfe',
+                            cursor: 'pointer',
+                          }}
+                          className="doctor-chat-item-card"
+                        >
+                          <span
+                            style={{
+                              width: '38px',
+                              height: '38px',
+                              borderRadius: '50%',
+                              background: conv.avatarColor || '#0d9488',
+                              color: '#fff',
+                              display: 'grid',
+                              placeItems: 'center',
+                              fontWeight: 700,
+                              fontSize: '13px',
+                              flexShrink: 0,
+                            }}
+                          >
+                            {initials}
+                          </span>
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                              <strong style={{ fontSize: '12px', color: '#1a2936' }}>{participantName}</strong>
+                              <small style={{ fontSize: '10px', color: '#7a8b98' }}>{timeStr}</small>
+                            </div>
+                            <p style={{ margin: '2px 0 0', fontSize: '11px', color: '#526573', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {lastMsgSnippet}
+                            </p>
+                          </div>
+                          {unreadCount > 0 && (
+                            <span style={{ width: '18px', height: '18px', borderRadius: '50%', background: '#277bc1', color: '#fff', fontSize: '10px', fontWeight: 700, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                              {unreadCount}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div style={{ padding: '16px', textAlign: 'center', color: '#64748b', fontSize: '12px', gridColumn: '1 / -1' }}>
+                      <p style={{ margin: '0 0 8px' }}>No active patient consultation messages.</p>
+                      <button
+                        type="button"
+                        onClick={() => navigate('/doctor/messages')}
+                        style={{ color: '#167c84', background: '#eaf4f5', border: '1px solid #c8dfe2', padding: '5px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
+                      >
+                        Start Consultation Chat
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </section>
+
               <div className="doctor-bottom-grid">
                 <section className="doctor-panel doctor-analytics"><div className="doctor-panel-heading"><h2>Appointment Analytics</h2><button type="button">View all</button></div><div className="doctor-chart" aria-label="Monthly appointment analytics chart">{['Jan','Feb','Mar','Apr','May','Jun','Aug','Sep','Oct','Nov','Dec'].map((month, i) => <div className="chart-month" key={month}><div className="chart-bars"><i style={{height: `${[46,70,84,52,58,62,48,70,51,57,41][i]}%`}} /><i style={{height: `${[66,57,72,48,82,78,58,48,44,72,30][i]}%`}} /><i style={{height: `${[0,0,0,31,0,80,0,0,42,0,0][i]}%`}} /></div><small>{month}</small></div>)}</div></section>
                 <section className="doctor-panel doctor-pending"><div className="doctor-panel-heading"><h2>Pending Actions</h2><button type="button" onClick={() => navigate('/doctor/appointments')}>View all</button></div>{[[`Review ${docCounts.requests} pending appointment request(s)`, docCounts.requests === 0], ['Complete doctor profile verification', true], ['Check encrypted medical record authorizations', true]].map(([task, done]) => <button className="doctor-task" key={task} type="button" onClick={() => navigate('/doctor/appointments')}><span className={done ? 'task-check' : 'task-pending'}>{done ? <CheckCircle2 size={18} /> : <CircleX size={18} />}</span><span>{task}</span><ArrowRight size={17} /></button>)}</section>
@@ -287,31 +401,30 @@ export default function DashboardPage({ role }) {
 
             <aside className="doctor-right-column">
               <section className="doctor-panel doctor-calendar"><div className="calendar-heading"><h2>{monthName}</h2><div><button aria-label="Previous month" type="button" onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))}><ChevronLeft size={17} /></button><button aria-label="Next month" type="button" onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))}><ChevronRight size={17} /></button></div></div><div className="calendar-grid">{['SUN','MON','TUE','WED','THU','FRI','SAT'].map((day) => <b key={day}>{day}</b>)}{calendarCells.map((day, index) => <span className={day === now.getDate() && calendarMonth.getMonth() === now.getMonth() && calendarMonth.getFullYear() === now.getFullYear() ? 'today' : ''} key={`${calendarMonth.getMonth()}-${index}`}>{day || ''}</span>)}</div></section>
-              <section className="doctor-panel doctor-todays-schedule"><div className="doctor-panel-heading"><h2>Today’s Schedule</h2></div>{docTodayAppointments.length > 0 ? (
+              <section className="doctor-panel doctor-todays-schedule"><div className="doctor-panel-heading"><h2>Today’s Schedule</h2></div>{Array.isArray(docTodayAppointments) && docTodayAppointments.length > 0 ? (
                 docTodayAppointments.map((appointment, i) => {
-                  const timeStr = new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', hour: 'numeric', minute: '2-digit' }).format(new Date(appointment.startsAt));
+                  let timeStr = '10:00 AM';
+                  try {
+                    const rawDate = appointment.startsAt || appointment.appointment_at || appointment.starts_at;
+                    const d = rawDate ? new Date(rawDate) : new Date();
+                    if (!isNaN(d.getTime())) {
+                      timeStr = new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', hour: 'numeric', minute: '2-digit' }).format(d);
+                    }
+                  } catch {}
                   return (
-                    <div className="doctor-timeline-row" key={appointment.id}>
+                    <div className="doctor-timeline-row" key={appointment.id || i}>
                       <strong>{timeStr}</strong>
                       <i className={`timeline-dot dot-${i % 3}`} />
-                      <span className={`timeline-card card-${i % 3}`}>{appointment.patient?.name?.split(' ')[0] || 'Patient'}</span>
+                      <span className={`timeline-card card-${i % 3}`}>{(appointment.patient?.name || appointment.doctorName || 'Patient').split(' ')[0]}</span>
                     </div>
                   );
                 })
               ) : (
                 <p style={{ padding: '16px', color: '#728591', fontSize: '12px', textAlign: 'center', margin: 0 }}>No schedule for today.</p>
               )}</section>
-              <section className="doctor-panel doctor-assistant"><div className="assistant-heading"><span className="clinical-bot"><Bot size={19} /></span><div><h2>AI Assistant</h2><small><i /> Online</small></div><button type="button" aria-label="Assistant options"><MoreVertical size={18} /></button></div><div className="assistant-body"><div className="assistant-message"><span className="clinical-bot small"><Bot size={15} /></span><p>Hello Dr. {effectiveUser.full_name?.split(' ').slice(-1)[0]}! 👋<br />How can I assist you today?</p></div><div className="assistant-suggestions"><button type="button" onClick={() => navigate('/doctor/appointments')}>Check Appointments</button><button type="button" onClick={() => navigate('/doctor/settings')}>Doctor Settings</button></div><label className="assistant-input"><input placeholder="Ask me anything..." aria-label="Ask AI assistant" /><button type="button" aria-label="Send"><Send size={17} /></button></label></div></section>
             </aside>
           </div>
         </main>
-
-        {dashboardAiAppointment && (
-          <AiClinicalSummaryModal
-            appointment={dashboardAiAppointment}
-            onClose={() => setDashboardAiAppointment(null)}
-          />
-        )}
 
         {showLogoutDialog && (
           <div className="dashboard-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !loggingOut) setShowLogoutDialog(false); }}>

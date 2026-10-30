@@ -1623,6 +1623,388 @@ app.delete('/api/patient/records/vitals/:id', async (req, res) => {
   }
 });
 
+// ----------------------------------------------------------------------------
+// Doctor & Patient Consultation Chat System Endpoints
+// ----------------------------------------------------------------------------
+interface ChatMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  senderRole: 'doctor' | 'patient';
+  receiverId: string;
+  text: string;
+  timestamp: string;
+  read: boolean;
+}
+
+const chatMessagesStore: ChatMessage[] = [
+  // Sachin Shinde & Dr. Ananya Sharma
+  {
+    id: 'msg-sachin-1',
+    senderId: '22222222-2222-4222-a222-222222222222',
+    senderName: 'Dr. Ananya Sharma',
+    senderRole: 'doctor',
+    receiverId: 'patient-dummy-1',
+    text: 'Hello Sachin, I reviewed your recent 12-lead ECG. The sinus rhythm is stable, and cardiac parameters are within acceptable limits.',
+    timestamp: new Date(Date.now() - 3600000 * 5).toISOString(),
+    read: true,
+  },
+  {
+    id: 'msg-sachin-2',
+    senderId: 'patient-dummy-1',
+    senderName: 'Sachin Shinde',
+    senderRole: 'patient',
+    receiverId: '22222222-2222-4222-a222-222222222222',
+    text: 'Good morning Dr. Sharma! Thank you for the update. My morning blood pressure was 124/80 mmHg. Should I continue the prescribed morning dosage?',
+    timestamp: new Date(Date.now() - 3600000 * 4).toISOString(),
+    read: true,
+  },
+  {
+    id: 'msg-sachin-3',
+    senderId: '22222222-2222-4222-a222-222222222222',
+    senderName: 'Dr. Ananya Sharma',
+    senderRole: 'doctor',
+    receiverId: 'patient-dummy-1',
+    text: 'Yes Sachin, 124/80 mmHg is optimal. Continue taking the tablet after breakfast and let me know if you experience any dizziness.',
+    timestamp: new Date(Date.now() - 3600000 * 2).toISOString(),
+    read: true,
+  },
+
+  // Atharv Kavitake & Dr. Ananya Sharma
+  {
+    id: 'msg-atharv-1',
+    senderId: '33333333-3333-4333-a333-333333333333',
+    senderName: 'Atharv Kavitake',
+    senderRole: 'patient',
+    receiverId: '22222222-2222-4222-a222-222222222222',
+    text: 'Hello Dr. Ananya, I uploaded my recent Complete Blood Count (CBC) and Lipid Profile reports to my health records.',
+    timestamp: new Date(Date.now() - 3600000 * 8).toISOString(),
+    read: true,
+  },
+  {
+    id: 'msg-atharv-2',
+    senderId: '22222222-2222-4222-a222-222222222222',
+    senderName: 'Dr. Ananya Sharma',
+    senderRole: 'doctor',
+    receiverId: '33333333-3333-4333-a333-333333333333',
+    text: 'Thank you Atharv! I checked the results. Total cholesterol is slightly elevated at 185 mg/dL, but triglycerides and hemoglobin look good. Let us maintain the low-sodium diet.',
+    timestamp: new Date(Date.now() - 3600000 * 3).toISOString(),
+    read: true,
+  },
+  {
+    id: 'msg-atharv-3',
+    senderId: '33333333-3333-4333-a333-333333333333',
+    senderName: 'Atharv Kavitake',
+    senderRole: 'patient',
+    receiverId: '22222222-2222-4222-a222-222222222222',
+    text: 'Understood doctor. Should I schedule a follow-up consultation next month?',
+    timestamp: new Date(Date.now() - 3600000 * 1).toISOString(),
+    read: false,
+  },
+
+  // Pooja Gaikwad & Dr. Ananya Sharma
+  {
+    id: 'msg-pooja-1',
+    senderId: 'patient-dummy-2',
+    senderName: 'Pooja Gaikwad',
+    senderRole: 'patient',
+    receiverId: '22222222-2222-4222-a222-222222222222',
+    text: 'Dr. Sharma, thank you for confirming my appointment for tomorrow at 11:30 AM.',
+    timestamp: new Date(Date.now() - 3600000 * 6).toISOString(),
+    read: true,
+  },
+  {
+    id: 'msg-pooja-2',
+    senderId: '22222222-2222-4222-a222-222222222222',
+    senderName: 'Dr. Ananya Sharma',
+    senderRole: 'doctor',
+    receiverId: 'patient-dummy-2',
+    text: 'You are welcome Pooja. Please bring your previous test prescriptions with you to the clinic.',
+    timestamp: new Date(Date.now() - 3600000 * 4).toISOString(),
+    read: true,
+  },
+];
+
+// Helper to check match between two IDs (patient user id or profile id)
+function matchesParticipant(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if ((a === 'patient-dummy-1' || a === 'profile-dummy-patient-1') && (b === 'patient-dummy-1' || b === 'profile-dummy-patient-1')) return true;
+  if ((a === '33333333-3333-4333-a333-333333333333' || a === 'profile-self-1') && (b === '33333333-3333-4333-a333-333333333333' || b === 'profile-self-1')) return true;
+  if ((a === 'patient-dummy-2' || a === 'profile-dummy-patient-2') && (b === 'patient-dummy-2' || b === 'profile-dummy-patient-2')) return true;
+  if ((a === '22222222-2222-4222-a222-222222222222' || a === 'dp-approved-1') && (b === '22222222-2222-4222-a222-222222222222' || b === 'dp-approved-1')) return true;
+  return false;
+}
+
+// 1. Get Chat Conversations list
+app.get('/api/chat/conversations', async (req: Request, res: Response) => {
+  try {
+    const session = getSession(req.cookies[SESSION_COOKIE_NAME]);
+    const role = (req.query.role as string) || (session?.user?.role) || 'doctor';
+    const doctorUserId = '22222222-2222-4222-a222-222222222222';
+    const patientUserId = '33333333-3333-4333-a333-333333333333';
+
+    if (role === 'doctor') {
+      const patientsList = [
+        {
+          id: 'patient-dummy-1',
+          profileId: 'profile-dummy-patient-1',
+          name: 'Sachin Shinde',
+          age: 34,
+          gender: 'Male',
+          bloodGroup: 'B+',
+          condition: 'Hypertension follow-up',
+          photoUrl: '',
+          online: true,
+        },
+        {
+          id: '33333333-3333-4333-a333-333333333333',
+          profileId: 'profile-self-1',
+          name: 'Atharv Kavitake',
+          age: 32,
+          gender: 'Male',
+          bloodGroup: 'O+',
+          condition: 'Lipid & CBC Review',
+          photoUrl: '',
+          online: true,
+        },
+        {
+          id: 'patient-dummy-2',
+          profileId: 'profile-dummy-patient-2',
+          name: 'Pooja Gaikwad',
+          age: 29,
+          gender: 'Female',
+          bloodGroup: 'A+',
+          condition: 'Routine Cardiac Checkup',
+          photoUrl: '',
+          online: false,
+        },
+        {
+          id: 'patient-dummy-3',
+          profileId: 'profile-dummy-patient-3',
+          name: 'Rohan Sawant',
+          age: 45,
+          gender: 'Male',
+          bloodGroup: 'O+',
+          condition: 'ECG Evaluation',
+          photoUrl: '',
+          online: false,
+        },
+        {
+          id: 'patient-dummy-4',
+          profileId: 'profile-dummy-patient-4',
+          name: 'Meera Deshmukh',
+          age: 52,
+          gender: 'Female',
+          bloodGroup: 'B+',
+          condition: 'Post-Op Follow-up',
+          photoUrl: '',
+          online: false,
+        },
+      ];
+
+      const conversations = patientsList.map((p) => {
+        const msgs = chatMessagesStore.filter(
+          (m) =>
+            (matchesParticipant(m.senderId, p.id) && matchesParticipant(m.receiverId, doctorUserId)) ||
+            (matchesParticipant(m.senderId, doctorUserId) && matchesParticipant(m.receiverId, p.id))
+        );
+        const lastMsg = msgs.at(-1) || {
+          text: `Consultation chat opened with ${p.name}`,
+          timestamp: new Date().toISOString(),
+          senderRole: 'doctor',
+        };
+        const unreadCount = msgs.filter((m) => matchesParticipant(m.senderId, p.id) && !m.read).length;
+
+        return {
+          participant: p,
+          lastMessage: {
+            text: lastMsg.text,
+            timestamp: lastMsg.timestamp,
+            senderRole: lastMsg.senderRole,
+          },
+          unreadCount,
+        };
+      });
+
+      res.json({ success: true, role: 'doctor', conversations });
+    } else {
+      // Patient's doctor conversations
+      const doctorsList = [
+        {
+          id: '22222222-2222-4222-a222-222222222222',
+          profileId: 'dp-approved-1',
+          name: 'Dr. Ananya Sharma',
+          speciality: 'Cardiologist',
+          clinic: 'Apex Multi-Specialty Heart Center',
+          photoUrl: '',
+          online: true,
+        },
+        {
+          id: 'doc-anil-mehta',
+          profileId: 'dp-approved-2',
+          name: 'Dr. Anil Mehta',
+          speciality: 'Cardiology Specialist',
+          clinic: 'Apollo Hospital Bengaluru',
+          photoUrl: '',
+          online: false,
+        },
+        {
+          id: 'doc-sarah-chen',
+          profileId: 'dp-approved-3',
+          name: 'Dr. Sarah Chen',
+          speciality: 'General Physician',
+          clinic: 'Arogya Clinic',
+          photoUrl: '',
+          online: true,
+        },
+      ];
+
+      const currentPatientId = session?.user?.id || patientUserId;
+      const conversations = doctorsList.map((d) => {
+        const msgs = chatMessagesStore.filter(
+          (m) =>
+            (matchesParticipant(m.senderId, d.id) && matchesParticipant(m.receiverId, currentPatientId)) ||
+            (matchesParticipant(m.senderId, currentPatientId) && matchesParticipant(m.receiverId, d.id))
+        );
+        const lastMsg = msgs.at(-1) || {
+          text: `Direct consultation channel with ${d.name}`,
+          timestamp: new Date().toISOString(),
+          senderRole: 'doctor',
+        };
+        const unreadCount = msgs.filter((m) => matchesParticipant(m.senderId, d.id) && !m.read).length;
+
+        return {
+          participant: d,
+          lastMessage: {
+            text: lastMsg.text,
+            timestamp: lastMsg.timestamp,
+            senderRole: lastMsg.senderRole,
+          },
+          unreadCount,
+        };
+      });
+
+      res.json({ success: true, role: 'patient', conversations });
+    }
+  } catch (err: any) {
+    console.error('[Chat] load conversations error:', err);
+    res.status(500).json({ success: false, error: 'Could not load chat conversations.' });
+  }
+});
+
+// 2. Get Thread Messages for a participant
+app.get('/api/chat/messages', async (req: Request, res: Response) => {
+  try {
+    const participantId = String(req.query.participantId || '').trim();
+    if (!participantId) {
+      res.status(400).json({ success: false, error: 'Participant ID is required.' });
+      return;
+    }
+
+    const session = getSession(req.cookies[SESSION_COOKIE_NAME]);
+    const role = (req.query.role as string) || (session?.user?.role) || 'doctor';
+    const currentUserId = session?.user?.id || (role === 'doctor' ? '22222222-2222-4222-a222-222222222222' : '33333333-3333-4333-a333-333333333333');
+
+    // Filter messages for this pair
+    const messages = chatMessagesStore.filter(
+      (m) =>
+        (matchesParticipant(m.senderId, participantId) && matchesParticipant(m.receiverId, currentUserId)) ||
+        (matchesParticipant(m.senderId, currentUserId) && matchesParticipant(m.receiverId, participantId))
+    );
+
+    // Mark as read
+    messages.forEach((m) => {
+      if (matchesParticipant(m.senderId, participantId)) {
+        m.read = true;
+      }
+    });
+
+    res.json({ success: true, messages });
+  } catch (err: any) {
+    console.error('[Chat] load messages error:', err);
+    res.status(500).json({ success: false, error: 'Could not load messages.' });
+  }
+});
+
+// 3. Post / Send a Message
+app.post('/api/chat/messages', async (req: Request, res: Response) => {
+  try {
+    const { receiverId, text, senderRole } = req.body || {};
+    if (!receiverId || !text || !String(text).trim()) {
+      res.status(400).json({ success: false, error: 'Receiver ID and non-empty message text are required.' });
+      return;
+    }
+
+    const session = getSession(req.cookies[SESSION_COOKIE_NAME]);
+    const role: 'doctor' | 'patient' = senderRole || (session?.user?.role as 'doctor' | 'patient') || 'doctor';
+    const senderId = session?.user?.id || (role === 'doctor' ? '22222222-2222-4222-a222-222222222222' : '33333333-3333-4333-a333-333333333333');
+    const senderName = session?.user?.full_name || (role === 'doctor' ? 'Dr. Ananya Sharma' : 'Patient');
+
+    const newMessage: ChatMessage = {
+      id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      senderId,
+      senderName,
+      senderRole: role,
+      receiverId: String(receiverId).trim(),
+      text: String(text).trim(),
+      timestamp: new Date().toISOString(),
+      read: false,
+    };
+
+    chatMessagesStore.push(newMessage);
+
+    // If patient sent a message to doctor, simulate doctor clinical response after 1s
+    if (role === 'patient') {
+      setTimeout(() => {
+        const replyText =
+          newMessage.text.toLowerCase().includes('bp') || newMessage.text.toLowerCase().includes('pressure')
+            ? 'Thank you for sharing your blood pressure reading. Please keep a daily log and stay well-hydrated.'
+            : newMessage.text.toLowerCase().includes('food') || newMessage.text.toLowerCase().includes('dose') || newMessage.text.toLowerCase().includes('medicine')
+            ? 'Yes, continue taking the prescribed medication right after food. Let me know if any discomfort persists.'
+            : 'Thank you for the message. I have updated your consultation notes and will review them shortly.';
+
+        chatMessagesStore.push({
+          id: `msg-reply-${Date.now()}`,
+          senderId: newMessage.receiverId,
+          senderName: 'Dr. Ananya Sharma',
+          senderRole: 'doctor',
+          receiverId: newMessage.senderId,
+          text: replyText,
+          timestamp: new Date().toISOString(),
+          read: false,
+        });
+      }, 1000);
+    } else if (role === 'doctor') {
+      // If doctor sent a message, simulate patient acknowledgement after 1.2s
+      setTimeout(() => {
+        const ackText =
+          newMessage.text.toLowerCase().includes('bp') || newMessage.text.toLowerCase().includes('blood pressure')
+            ? 'Understood Dr. Sharma. I will monitor my BP and log the readings here daily.'
+            : newMessage.text.toLowerCase().includes('report') || newMessage.text.toLowerCase().includes('test')
+            ? 'Thank you doctor! I will follow your instructions and stay in touch.'
+            : 'Thank you so much Dr. Sharma, noted!';
+
+        chatMessagesStore.push({
+          id: `msg-ack-${Date.now()}`,
+          senderId: newMessage.receiverId,
+          senderName: 'Sachin Shinde',
+          senderRole: 'patient',
+          receiverId: newMessage.senderId,
+          text: ackText,
+          timestamp: new Date().toISOString(),
+          read: false,
+        });
+      }, 1200);
+    }
+
+    res.status(201).json({ success: true, message: newMessage });
+  } catch (err: any) {
+    console.error('[Chat] send message error:', err);
+    res.status(500).json({ success: false, error: 'Could not deliver message.' });
+  }
+});
+
 export { app };
 
 if (process.env.NODE_ENV !== 'test') {

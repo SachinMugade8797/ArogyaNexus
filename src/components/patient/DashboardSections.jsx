@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertTriangle, ArrowDownToLine, ArrowRight, CalendarDays, Check, ChevronDown, Clock3, FileText, HeartPulse, MapPin, ShieldCheck, Upload, X } from 'lucide-react';
+import { AlertTriangle, ArrowDownToLine, ArrowRight, CalendarDays, Check, ChevronDown, Clock3, FileText, HeartPulse, MapPin, MessageCircle, ShieldCheck, Upload, X } from 'lucide-react';
 import { Avatar, Button, Card, StatusChip } from '../ui';
 import { getConsentDaysRemaining } from '../../utils/consent';
 import { Link } from 'react-router-dom';
@@ -42,8 +42,8 @@ export function NextAppointmentCard({ appointment, onRetry, state }) {
           <div className="appointment-meta">
             <span className="appointment-date">{relativeDate(appointment.at)}</span>
             <StatusChip status={appointment.status} />
-            <Link to="/patient/doctors" className="patient-button light" style={{ textDecoration: 'none' }}>
-              Book Another
+            <Link to={`/patient/messages?doctor=${appointment.doctorId || '22222222-2222-4222-a222-222222222222'}`} className="patient-button light" style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+              <MessageCircle size={13} /> Chat with Doctor
             </Link>
           </div>
           <span className="appointment-clinic">
@@ -79,6 +79,7 @@ export function NextAppointmentCard({ appointment, onRetry, state }) {
 export function QuickActions({ onRetry, state }) {
   const actions = [
     { icon: CalendarDays, label: 'Book Appointment', to: '/patient/doctors' },
+    { icon: MessageCircle, label: 'Doctor Chat', to: '/patient/messages' },
     { icon: Upload, label: 'Upload Record', to: '/patient/records' },
   ];
   return (
@@ -503,6 +504,99 @@ export function RecentDocuments({ documents = [], onRetry, state }) {
           </Link>
         </div>
       )}
+    </Card>
+  );
+}
+
+export function DoctorChatCard({ state, onRetry }) {
+  return (
+    <Card
+      title="Doctor Consultation Chat"
+      className="doctor-chat-widget-card"
+      state={state}
+      onRetry={onRetry}
+      action={
+        <Link
+          to="/patient/messages"
+          style={{ fontSize: '11px', color: '#167a70', textDecoration: 'none', fontWeight: 600 }}
+        >
+          View all →
+        </Link>
+      }
+    >
+      <div style={{ padding: '6px 0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+          <div
+            style={{
+              width: '38px',
+              height: '38px',
+              borderRadius: '50%',
+              background: '#0d9488',
+              color: '#fff',
+              display: 'grid',
+              placeItems: 'center',
+              fontWeight: 700,
+              fontSize: '13px',
+              flexShrink: 0,
+            }}
+          >
+            AS
+          </div>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '4px' }}>
+              <strong style={{ fontSize: '13px', color: '#172b3a' }}>Dr. Ananya Sharma</strong>
+              <span
+                style={{
+                  fontSize: '9px',
+                  fontWeight: 650,
+                  padding: '2px 6px',
+                  borderRadius: '10px',
+                  background: '#dcfce7',
+                  color: '#15803d',
+                }}
+              >
+                Online
+              </span>
+            </div>
+            <small style={{ color: '#64748b', fontSize: '11px' }}>Senior Cardiologist</small>
+          </div>
+        </div>
+
+        <p
+          style={{
+            margin: '0 0 12px',
+            fontSize: '12px',
+            color: '#475569',
+            lineHeight: 1.45,
+            background: '#f8fafc',
+            border: '1px solid #e2e8f0',
+            borderRadius: '8px',
+            padding: '8px 10px',
+          }}
+        >
+          Have questions regarding your blood pressure, symptoms, or medications?
+        </p>
+
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <Link
+            to="/patient/messages?doctor=22222222-2222-4222-a222-222222222222"
+            className="patient-button primary"
+            style={{
+              flex: 1,
+              textDecoration: 'none',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              fontSize: '12px',
+              fontWeight: 650,
+              padding: '8px 12px',
+            }}
+          >
+            <MessageCircle size={14} /> Open Doctor Chat
+          </Link>
+        </div>
+      </div>
     </Card>
   );
 }
