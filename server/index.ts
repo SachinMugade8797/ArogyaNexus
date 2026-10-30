@@ -16,6 +16,7 @@ import { recordPath, removeRecord, storeRecord } from './recordStorage';
 import path from 'node:path';
 import fs from 'node:fs';
 import { vitalRangeStart, recordCategoryFilter } from '../lib/records/logic';
+import { generateAiClinicalSummary } from './aiClinicalSummary';
 
 dotenv.config();
 
@@ -573,9 +574,11 @@ app.get('/api/doctor/appointments', async (req: Request, res: Response) => {
     const allProfiles = await prisma.profile.findMany();
 
     const appointments = rows.map((item: any, idx: number) => {
-      const patientUser = allUsers.find((u: any) => u.id === item.patient_id) || { full_name: 'Rahul K.', id: item.patient_id || 'patient-demo' };
-      const patientProf = allProfiles.find((p: any) => p.id === item.profile_id || p.user_id === item.patient_id);
-      const patientName = patientProf?.name || patientUser.full_name || 'Rahul K.';
+      const patientUser = allUsers.find((u: any) => u.id === item.patient_id) || { full_name: 'Patient', id: item.patient_id || 'patient-demo' };
+      const patientProf = (item.profile_id ? allProfiles.find((p: any) => p.id === item.profile_id) : null) ||
+        allProfiles.find((p: any) => p.user_id === item.patient_id && p.relation === 'SELF') ||
+        allProfiles.find((p: any) => p.user_id === item.patient_id);
+      const patientName = patientProf?.name || patientUser.full_name || 'Patient';
       const statusRaw = String(item.status || 'pending').toLowerCase();
       const status =
         statusRaw === 'pending'
@@ -591,6 +594,13 @@ app.get('/api/doctor/appointments', async (req: Request, res: Response) => {
       const start = new Date(item.appointment_at || Date.now());
       const end = item.ends_at ? new Date(item.ends_at) : new Date(start.getTime() + 30 * 60000);
 
+      let age = 32;
+      if (patientProf?.dob) {
+        const birthYear = new Date(patientProf.dob).getFullYear();
+        const currYear = new Date().getFullYear();
+        age = Math.max(1, currYear - birthYear);
+      }
+
       return {
         id: item.id,
         tokenNumber: item.token_number || (idx + 1),
@@ -599,16 +609,20 @@ app.get('/api/doctor/appointments', async (req: Request, res: Response) => {
         startsAt: start.toISOString(),
         endsAt: end.toISOString(),
         reason: item.reason || 'General Consultation',
-        doctorNotes: item.doctor_notes || '',
+        doctorNotes: item.notes || item.doctor_notes || '',
         patient: {
           id: item.patient_id || 'p-patient',
+          profileId: item.profile_id || patientProf?.id || 'profile-self-1',
           name: patientName,
-          age: 32,
-          gender: 'Male',
-          photoUrl: '',
+          age,
+          gender: patientProf?.gender || 'Male',
+          photoUrl: patientProf?.photo_url || '',
+          bloodGroup: patientProf?.blood_group || 'O+',
+          allergies: Array.isArray(patientProf?.allergies) ? patientProf.allergies : [],
         },
-        checkInVitals: null,
-        consent: { id: `consent-${item.id}`, status: 'ACTIVE', expiresAt: new Date(Date.now() + 86400000).toISOString() },
+        checkInVitals: item.check_in_vitals || null,
+        checkedInAt: item.checked_in_at ? new Date(item.checked_in_at).toISOString() : null,
+        consent: item.consent || { id: `consent-${item.id}`, status: 'ACTIVE', expiresAt: new Date(Date.now() + 86400000).toISOString() },
         createdAt: item.created_at || new Date().toISOString(),
         doctorId: item.doctor_profile_id,
         doctorName: item.doctor?.user?.full_name || item.doctor?.clinic_name || 'Doctor',
@@ -619,6 +633,57 @@ app.get('/api/doctor/appointments', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('[Doctor Appointments] load error:', error);
     res.status(500).json({ success: false, error: 'Could not load doctor appointments.' });
+  }
+});
+
+app.post('/api/doctor/appointments', async (req: Request, res: Response) => {
+  try {
+    const session = getSession(req.cookies[SESSION_COOKIE_NAME]);
+    let doctorProfileId = 'dp-approved-1';
+    if (session && session.user.role === 'doctor') {
+      const doc = await prisma.doctorProfile.findUnique({ where: { user_id: session.user.id } });
+      if (doc) doctorProfileId = doc.id;
+    }
+
+    const { patient, startsAt, reason, mode } = req.body || {};
+    if (!startsAt || !reason?.trim()) {
+      res.status(400).json({ success: false, error: 'Appointment time and reason are required.' });
+      return;
+    }
+
+    const patientId = patient?.id || '33333333-3333-4333-a333-333333333333';
+    const profileId = patient?.profileId || 'profile-self-1';
+
+    const start = new Date(startsAt);
+    const end = new Date(start.getTime() + 30 * 60000);
+
+    const countForDay = await prisma.appointment.count({
+      where: {
+        appointment_at: {
+          gte: new Date(start.toISOString().slice(0, 10) + 'T00:00:00.000Z'),
+          lt: new Date(start.toISOString().slice(0, 10) + 'T23:59:59.999Z'),
+        },
+      },
+    });
+
+    const created = await (prisma as any).appointment.create({
+      data: {
+        patient_id: patientId,
+        profile_id: profileId,
+        doctor_profile_id: doctorProfileId,
+        appointment_at: start,
+        ends_at: end,
+        reason: reason.trim(),
+        status: 'confirmed',
+        mode: mode || 'IN_PERSON',
+        token_number: countForDay + 1,
+      },
+    });
+
+    res.status(201).json({ success: true, appointment: created });
+  } catch (err: any) {
+    console.error('[Doctor Appointments] Create error:', err);
+    res.status(500).json({ success: false, error: err?.message || 'Could not create appointment.' });
   }
 });
 
@@ -672,6 +737,418 @@ app.patch('/api/doctor/appointments/:id/status', async (req: Request, res: Respo
   } catch (error) {
     console.error('[Doctor Appointments] status error:', error);
     res.status(500).json({ success: false, error: 'Could not update status.' });
+  }
+});
+
+// ----------------------------------------------------------------------------
+// AI Clinical Assistant & Patient Summary Generator
+// ----------------------------------------------------------------------------
+app.post('/api/doctor/appointments/:id/ai-summary', async (req: Request, res: Response) => {
+  try {
+    const appointmentId = String(req.params.id);
+    const session = getSession(req.cookies[SESSION_COOKIE_NAME]);
+    let doctorId = 'dp-approved-1';
+    if (session && session.user.role === 'doctor') {
+      const doc = await prisma.doctorProfile.findUnique({ where: { user_id: session.user.id } });
+      if (doc) doctorId = doc.id;
+    }
+
+    const apiKey =
+      (req.headers['x-gemini-api-key'] as string) ||
+      (req.body?.apiKey as string) ||
+      process.env.GEMINI_API_KEY ||
+      process.env.GOOGLE_API_KEY ||
+      '';
+
+    const result = await generateAiClinicalSummary(appointmentId, {
+      apiKey,
+      doctorId,
+    });
+
+    res.json({ success: true, summary: result });
+  } catch (error: any) {
+    console.error('[AI Clinical Summary] Error generating summary:', error);
+    res.status(500).json({
+      success: false,
+      error: error?.message || 'Could not generate clinical summary.',
+    });
+  }
+});
+
+function makeSamplePdf(title: string, subtitle = 'Patient Medical Document - Confidential'): Buffer {
+  const safe = title.replace(/[^A-Za-z0-9 .-]/g, '').slice(0, 80);
+  const safeSub = subtitle.replace(/[^A-Za-z0-9 .-]/g, '').slice(0, 80);
+  const stream = `BT /F1 16 Tf 50 760 Td (ArogyaNexus Clinical Health Record) Tj 0 -26 Td /F1 13 Tf (${safe}) Tj 0 -22 Td /F1 10 Tf (${safeSub}) Tj 0 -20 Td /F1 9 Tf (Verified Hospital / Diagnostic Centre Record) Tj ET`;
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>',
+    `<< /Length ${Buffer.byteLength(stream, 'ascii')} >>\nstream\n${stream}\nendstream`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ];
+  let pdf = '%PDF-1.4\n'; const offsets = [0];
+  objects.forEach((object, index) => { offsets.push(Buffer.byteLength(pdf, 'ascii')); pdf += `${index + 1} 0 obj\n${object}\nendobj\n`; });
+  const xref = Buffer.byteLength(pdf, 'ascii'); pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const offset of offsets.slice(1)) pdf += `${String(offset).padStart(10, '0')} 00000 n \n`;
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(pdf, 'ascii');
+}
+
+// Doctor View Endpoint for Patient PDF Records
+app.get('/api/doctor/records/:id/file', async (req: Request, res: Response) => {
+  try {
+    const recordId = String(req.params.id);
+    const row = await prisma.healthRecord.findFirst({
+      where: { id: recordId, deleted_at: null },
+    });
+
+    if (!row) {
+      res.status(404).json({ success: false, error: 'Record not found.' });
+      return;
+    }
+
+    let filePath = '';
+    try {
+      filePath = recordPath(row.file_key);
+    } catch {
+      filePath = path.resolve('.private-records', row.file_key);
+    }
+
+    if (!fs.existsSync(filePath)) {
+      const samplePdf = makeSamplePdf(row.title || 'Medical Record', row.issuer || 'Hospital Record');
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(row.file_name || 'record.pdf')}"`);
+      res.setHeader('Cache-Control', 'private, no-store');
+      res.send(samplePdf);
+      return;
+    }
+
+    res.setHeader('Content-Type', row.mime_type || 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(row.file_name)}"`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.sendFile(path.resolve(filePath), { dotfiles: 'allow' }, (err) => {
+      if (err && !res.headersSent) {
+        console.error('[Doctor Record File] Send error:', err);
+        res.status(404).json({ success: false, error: 'Could not stream file.' });
+      }
+    });
+  } catch (err) {
+    console.error('[Doctor Record File] Error streaming file:', err);
+    res.status(500).json({ success: false, error: 'Could not access record file.' });
+  }
+});
+
+// ----------------------------------------------------------------------------
+// Doctor View Patient Medical Records Endpoint
+// ----------------------------------------------------------------------------
+app.get(['/api/doctor/patients/:patientId/records', '/api/doctor/patient-records/:patientId'], async (req: Request, res: Response) => {
+  try {
+    const rawPatientId = String(req.params.patientId || '').trim();
+    const appointmentId = String(req.query.appointmentId || '').trim();
+    const session = getSession(req.cookies[SESSION_COOKIE_NAME]);
+
+    let doctorId = 'dp-approved-1';
+    if (session && session.user.role === 'doctor') {
+      const doc = await prisma.doctorProfile.findUnique({ where: { user_id: session.user.id } });
+      if (doc) doctorId = doc.id;
+    }
+
+    const allProfiles = await prisma.profile.findMany();
+    const allUsers = await prisma.user.findMany();
+
+    // 1. Resolve Patient Profile
+    let profile = allProfiles.find((p: any) => p.id === rawPatientId);
+    if (!profile) {
+      profile = allProfiles.find((p: any) => p.user_id === rawPatientId && p.relation === 'SELF') ||
+        allProfiles.find((p: any) => p.user_id === rawPatientId);
+    }
+
+    let appointment: any = null;
+    if (appointmentId) {
+      appointment = await prisma.appointment.findFirst({
+        where: { id: appointmentId },
+        include: { doctor: { include: { user: { select: { full_name: true } } } } },
+      });
+      if (appointment && !profile) {
+        profile = (appointment.profile_id ? allProfiles.find((p: any) => p.id === appointment.profile_id) : null) ||
+          allProfiles.find((p: any) => p.user_id === appointment.patient_id && p.relation === 'SELF') ||
+          allProfiles.find((p: any) => p.user_id === appointment.patient_id);
+      }
+    }
+
+    if (!profile) {
+      profile = allProfiles.find((p: any) => p.id === 'profile-self-1') || allProfiles[0] || {
+        id: 'profile-self-1',
+        user_id: '33333333-3333-4333-a333-333333333333',
+        name: 'Atharv Kavitake',
+        relation: 'SELF',
+        allergies: ['Penicillin', 'Sulfa Drugs'],
+        dob: '1994-05-15T00:00:00.000Z',
+        gender: 'Male',
+        blood_group: 'O+',
+        emergency_name: 'Emergency Contact',
+        emergency_phone: '+91 98220 12345',
+        emergency_relation: 'FAMILY',
+        notes: '',
+      };
+    }
+
+    const profileId = profile.id;
+    const patientUser = allUsers.find((u: any) => u.id === profile.user_id) || {
+      id: profile.user_id,
+      full_name: profile.name,
+      email: '',
+      phone: profile.phone || '+91 98220 12345',
+    };
+
+    // Calculate age
+    let age = 32;
+    if (profile.dob) {
+      const birthYear = new Date(profile.dob).getFullYear();
+      age = Math.max(1, new Date().getFullYear() - birthYear);
+    }
+
+    // 2. Fetch Health Records
+    let recordsRows = await prisma.healthRecord.findMany({
+      where: { patient_id: profileId, deleted_at: null },
+      include: { doctor: { include: { user: { select: { full_name: true } } } } },
+      orderBy: { record_date: 'desc' },
+    });
+
+    if (!recordsRows || recordsRows.length === 0) {
+      recordsRows = await prisma.healthRecord.findMany({
+        where: { deleted_at: null },
+        include: { doctor: { include: { user: { select: { full_name: true } } } } },
+        orderBy: { record_date: 'desc' },
+        take: 8,
+      });
+    }
+
+    const records = recordsRows.map((row: any) => ({
+      id: row.id,
+      title: row.title,
+      category: row.category,
+      issuer: row.issuer,
+      recordDate: row.record_date instanceof Date ? row.record_date.toISOString() : String(row.record_date),
+      fileType: mimeLabel(row.mime_type),
+      mimeType: row.mime_type,
+      fileName: row.file_name,
+      fileSize: row.size_bytes ? `${Math.round(row.size_bytes / 1024)} KB` : '160 KB',
+      source: row.source,
+      doctor: row.doctor ? { name: row.doctor.user?.full_name || 'Dr. Ananya Sharma', photoUrl: row.doctor.photo_url } : null,
+      fileUrl: `/api/doctor/records/${row.id}/file`,
+    }));
+
+    // 3. Fetch Vitals
+    let vitalsRows = await prisma.vitalReading.findMany({
+      where: { patient_id: profileId },
+      orderBy: { measured_at: 'desc' },
+    });
+
+    if (!vitalsRows || vitalsRows.length === 0) {
+      vitalsRows = await prisma.vitalReading.findMany({
+        where: { patient_id: 'profile-self-1' },
+        orderBy: { measured_at: 'desc' },
+        take: 30,
+      });
+    }
+
+    const vitals: Record<string, any> = {};
+    const sys = vitalsRows.find((r: any) => r.type === 'BP_SYSTOLIC');
+    const dia = vitalsRows.find((r: any) => r.type === 'BP_DIASTOLIC');
+    if (sys && dia) {
+      vitals.BLOOD_PRESSURE = {
+        value: `${sys.value}/${dia.value}`,
+        systolic: sys.value,
+        diastolic: dia.value,
+        unit: 'mmHg',
+        measuredAt: sys.measured_at instanceof Date ? sys.measured_at.toISOString() : String(sys.measured_at),
+        status: sys.value <= 125 && dia.value <= 82 ? 'Normal' : 'Elevated',
+      };
+    } else if (appointment?.check_in_vitals?.bpSys) {
+      vitals.BLOOD_PRESSURE = {
+        value: `${appointment.check_in_vitals.bpSys}/${appointment.check_in_vitals.bpDia}`,
+        systolic: appointment.check_in_vitals.bpSys,
+        diastolic: appointment.check_in_vitals.bpDia,
+        unit: 'mmHg',
+        measuredAt: appointment.checked_in_at || new Date().toISOString(),
+        status: 'Normal',
+      };
+    }
+
+    const sugar = vitalsRows.find((r: any) => r.type === 'BLOOD_SUGAR_FASTING');
+    if (sugar) {
+      vitals.BLOOD_SUGAR_FASTING = {
+        value: sugar.value,
+        unit: sugar.unit,
+        measuredAt: sugar.measured_at instanceof Date ? sugar.measured_at.toISOString() : String(sugar.measured_at),
+        status: sugar.value <= 105 ? 'Normal' : 'Borderline',
+      };
+    } else {
+      vitals.BLOOD_SUGAR_FASTING = {
+        value: 98,
+        unit: 'mg/dL',
+        measuredAt: new Date().toISOString(),
+        status: 'Normal',
+      };
+    }
+
+    const chol = vitalsRows.find((r: any) => r.type === 'CHOLESTEROL_TOTAL');
+    if (chol) {
+      vitals.CHOLESTEROL_TOTAL = {
+        value: chol.value,
+        unit: chol.unit,
+        measuredAt: chol.measured_at instanceof Date ? chol.measured_at.toISOString() : String(chol.measured_at),
+        status: chol.value <= 200 ? 'Normal' : 'Borderline',
+      };
+    } else {
+      vitals.CHOLESTEROL_TOTAL = {
+        value: 185,
+        unit: 'mg/dL',
+        measuredAt: new Date().toISOString(),
+        status: 'Normal',
+      };
+    }
+
+    const hr = vitalsRows.find((r: any) => r.type === 'HEART_RATE');
+    if (hr) {
+      vitals.HEART_RATE = {
+        value: hr.value,
+        unit: hr.unit,
+        measuredAt: hr.measured_at instanceof Date ? hr.measured_at.toISOString() : String(hr.measured_at),
+        status: 'Normal',
+      };
+    } else {
+      vitals.HEART_RATE = {
+        value: appointment?.check_in_vitals?.pulse || 72,
+        unit: 'bpm',
+        measuredAt: appointment?.checked_in_at || new Date().toISOString(),
+        status: 'Normal',
+      };
+    }
+
+    const weight = vitalsRows.find((r: any) => r.type === 'WEIGHT');
+    if (weight) {
+      vitals.WEIGHT = {
+        value: weight.value,
+        unit: weight.unit,
+        measuredAt: weight.measured_at instanceof Date ? weight.measured_at.toISOString() : String(weight.measured_at),
+        status: 'Normal',
+      };
+    } else {
+      vitals.WEIGHT = {
+        value: profile.weight_kg || 68,
+        unit: 'kg',
+        measuredAt: new Date().toISOString(),
+        status: 'Normal',
+      };
+    }
+
+    const vitalsHistory = vitalsRows.slice(0, 15).map((row: any) => {
+      const titleMap: Record<string, string> = {
+        BLOOD_SUGAR_FASTING: 'Blood Sugar (Fasting)',
+        BP_SYSTOLIC: 'Blood Pressure (Systolic)',
+        BP_DIASTOLIC: 'Blood Pressure (Diastolic)',
+        CHOLESTEROL_TOTAL: 'Cholesterol (Total)',
+        HEART_RATE: 'Heart Rate',
+        WEIGHT: 'Weight',
+      };
+      return {
+        id: row.id,
+        type: row.type,
+        title: titleMap[row.type] || row.type.replace(/_/g, ' '),
+        value: String(row.value),
+        unit: row.unit,
+        measuredAt: row.measured_at instanceof Date ? row.measured_at.toISOString() : String(row.measured_at),
+        source: row.source || 'SELF',
+      };
+    });
+
+    // 4. Fetch Conditions
+    let conditionsRows = await prisma.patientCondition.findMany({
+      where: { patient_id: profileId },
+      orderBy: { status: 'asc' },
+    });
+
+    if (!conditionsRows || conditionsRows.length === 0) {
+      conditionsRows = await prisma.patientCondition.findMany({
+        where: { patient_id: 'profile-self-1' },
+      });
+    }
+
+    const conditions = conditionsRows.map((c: any) => ({
+      id: c.id,
+      name: c.name,
+      status: c.status,
+      since: c.since instanceof Date ? c.since.toISOString().slice(0, 10) : c.since,
+      notes: c.notes || '',
+    }));
+
+    // 5. Patient Object
+    const patientData = {
+      id: profile.id,
+      userId: profile.user_id,
+      profileId: profile.id,
+      name: profile.name || patientUser.full_name || 'Patient',
+      age,
+      gender: profile.gender || 'Male',
+      bloodGroup: profile.blood_group || 'O+',
+      allergies: Array.isArray(profile.allergies) && profile.allergies.length > 0 ? profile.allergies : ['Penicillin'],
+      phone: profile.phone || patientUser.phone || '+91 98220 12345',
+      emergencyContact: {
+        name: profile.emergency_name || 'Sunita Kavitake',
+        phone: profile.emergency_phone || '+91 98220 12345',
+        relation: profile.emergency_relation || 'FAMILY',
+      },
+      notes: (profile as any).notes || '',
+    };
+
+    // 6. Appointment Context
+    let apptData: any = null;
+    if (appointment) {
+      apptData = {
+        id: appointment.id,
+        tokenNumber: appointment.token_number || 1,
+        status: appointment.status,
+        mode: appointment.mode || 'IN_PERSON',
+        startsAt: appointment.appointment_at instanceof Date ? appointment.appointment_at.toISOString() : String(appointment.appointment_at),
+        reason: appointment.reason || 'General Consultation',
+        doctorNotes: appointment.notes || '',
+        checkInVitals: appointment.check_in_vitals || null,
+      };
+    }
+
+    // 7. Audit Log Access
+    try {
+      await prisma.accessLog.create({
+        data: {
+          patient_id: profileId,
+          doctor_id: doctorId,
+          action: 'VIEW_RECORDS',
+          record_title: 'Full Medical Records Dossier',
+          consent_id: appointmentId ? `consent-${appointmentId}` : 'consent-direct',
+        },
+      });
+    } catch {}
+
+    res.json({
+      success: true,
+      patient: patientData,
+      records,
+      vitals,
+      vitalsHistory,
+      conditions,
+      appointment: apptData,
+      consent: {
+        id: appointmentId ? `consent-${appointmentId}` : `consent-${profileId}`,
+        status: 'ACTIVE',
+        scope: ['VIEW_RECORDS', 'VIEW_VITALS', 'VIEW_CONDITIONS'],
+        expiresAt: new Date(Date.now() + 86400000).toISOString(),
+      },
+    });
+  } catch (err: any) {
+    console.error('[Doctor Patient Records] Error:', err);
+    res.status(500).json({ success: false, error: err?.message || 'Could not load patient medical records.' });
   }
 });
 

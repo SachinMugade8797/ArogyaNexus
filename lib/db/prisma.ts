@@ -35,30 +35,29 @@ export async function isPostgresRunning(): Promise<boolean> {
   }
 
   return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result: boolean) => {
+      if (settled) return;
+      settled = true;
+      postgresAvailable = result;
+      lastCheckTime = Date.now();
+      try {
+        socket.destroy();
+      } catch {}
+      resolve(result);
+    };
+
     const socket = new net.Socket();
     socket.setTimeout(150);
 
-    socket.on('connect', () => {
-      postgresAvailable = true;
-      lastCheckTime = Date.now();
-      socket.destroy();
-      resolve(true);
-    });
-
-    const onFail = () => {
-      postgresAvailable = false;
-      lastCheckTime = Date.now();
-      socket.destroy();
-      resolve(false);
-    };
-
-    socket.on('timeout', onFail);
-    socket.on('error', onFail);
+    socket.once('connect', () => finish(true));
+    socket.once('timeout', () => finish(false));
+    socket.once('error', () => finish(false));
 
     try {
       socket.connect(5432, '127.0.0.1');
     } catch {
-      onFail();
+      finish(false);
     }
   });
 }
@@ -712,6 +711,13 @@ const fallbackAppointment = {
     const list = await fallbackAppointment.findMany(args);
     return list[0] || null;
   },
+  async findUnique(args: any = {}) {
+    return fallbackAppointment.findFirst(args);
+  },
+  async count(args: any = {}) {
+    const list = await fallbackAppointment.findMany(args);
+    return list.length;
+  },
   async update(args: any) {
     const db = loadLocalDB();
     const idx = (db.appointments || []).findIndex((a: any) => a.id === args.where.id);
@@ -730,10 +736,16 @@ const fallbackAppointment = {
       profile_id: args.data.profile_id || null,
       doctor_profile_id: args.data.doctor_profile_id,
       appointment_at: new Date(args.data.appointment_at).toISOString(),
+      ends_at: args.data.ends_at ? new Date(args.data.ends_at).toISOString() : new Date(new Date(args.data.appointment_at).getTime() + 30 * 60000).toISOString(),
       reason: args.data.reason || null,
       status: args.data.status || 'pending',
       mode: args.data.mode || 'IN_PERSON',
+      token_number: args.data.token_number || null,
+      check_in_vitals: args.data.check_in_vitals || null,
+      checked_in_at: args.data.checked_in_at || null,
+      notes: args.data.notes || null,
       created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     };
     db.appointments = db.appointments || [];
     db.appointments.push(appointment);
@@ -1276,6 +1288,38 @@ export const prisma = {
           postgresAvailable = false;
           logFallbackNotice();
           return await fallbackAppointment.findFirst(args);
+        }
+        throw err;
+      }
+    },
+    async findUnique(args: any = {}) {
+      const running = await isPostgresRunning();
+      if (!running) {
+        logFallbackNotice();
+        return await fallbackAppointment.findUnique(args);
+      }
+      try {
+        return await (rawPrisma as any).appointment.findUnique(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          logFallbackNotice();
+          return await fallbackAppointment.findUnique(args);
+        }
+        throw err;
+      }
+    },
+    async count(args: any = {}) {
+      const running = await isPostgresRunning();
+      if (!running) {
+        return await fallbackAppointment.count(args);
+      }
+      try {
+        return await (rawPrisma as any).appointment.count(args);
+      } catch (err) {
+        if (isConnectionError(err)) {
+          postgresAvailable = false;
+          return await fallbackAppointment.count(args);
         }
         throw err;
       }

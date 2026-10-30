@@ -73,7 +73,35 @@ export async function getDoctorAppointments({ tab = 'today', q = '', filter = 'A
   return clone(visible);
 }
 
-export async function getAppointment(id) { await delay(); return clone(getById(id) || null); }
+export async function getAppointment(id) {
+  await delay();
+  let found = getById(id);
+  if (!found) {
+    try {
+      await syncLiveAppointments();
+      found = getById(id);
+    } catch {}
+  }
+  return clone(found || null);
+}
+
+export async function getDoctorPatientRecords(patientId, appointmentId = '') {
+  try {
+    const params = new URLSearchParams();
+    if (appointmentId) params.append('appointmentId', appointmentId);
+    const res = await fetch(`/api/doctor/patients/${encodeURIComponent(patientId)}/records?${params.toString()}`, {
+      credentials: 'include',
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      return data;
+    }
+    throw new Error(data.error || 'Could not load patient medical records.');
+  } catch (err) {
+    console.error('[DoctorAppointments] getDoctorPatientRecords error:', err);
+    throw err;
+  }
+}
 
 export async function getDoctorAppointmentCounts() {
   await syncLiveAppointments();
@@ -211,10 +239,50 @@ export async function createAppointment(data) {
   if (new Date(data.startsAt) <= new Date()) return failResult('PAST_SLOT', 'Choose a future time.');
   const end = data.endsAt || new Date(new Date(data.startsAt).getTime() + 30 * 60000).toISOString();
   if (appointmentStore.some((item) => item.status !== 'CANCELLED' && new Date(item.startsAt) < new Date(end) && new Date(item.endsAt) > new Date(data.startsAt))) return failResult('SLOT_TAKEN', 'That time is no longer available.');
+
+  try {
+    const res = await fetch('/api/doctor/appointments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        patient: data.patient,
+        startsAt: data.startsAt,
+        reason: data.reason,
+        mode: data.mode || 'IN_PERSON',
+      }),
+    });
+    if (res.ok) {
+      await syncLiveAppointments();
+      const created = appointmentStore.find((a) => a.reason === data.reason.trim());
+      if (created) return clone(created);
+    }
+  } catch (err) {
+    console.warn('[DoctorAppointments] Server create error, saving in local store:', err);
+  }
+
   const appointment = { id: `appt-${crypto.randomUUID()}`, tokenNumber: nextToken(data.startsAt), status: 'SCHEDULED', mode: data.mode || 'IN_PERSON', startsAt: new Date(data.startsAt).toISOString(), endsAt: new Date(end).toISOString(), checkedInAt: null, reason: data.reason.trim(), doctorNotes: '', patient: clone(data.patient), checkInVitals: null, consent: null, missedAlertSentAt: null, createdAt: new Date().toISOString() };
   appointmentStore.push(appointment);
   recordAudit('APPOINTMENT_CREATED', appointment.id);
   return clone(appointment);
+}
+
+export async function getAiClinicalSummary(appointmentId) {
+  try {
+    const res = await fetch(`/api/doctor/appointments/${encodeURIComponent(appointmentId)}/ai-summary`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Could not generate AI clinical summary.');
+    }
+    return data.summary;
+  } catch (err) {
+    console.error('[DoctorAppointments] getAiClinicalSummary error:', err);
+    throw err;
+  }
 }
 
 export async function searchMyPatients(q = '') {

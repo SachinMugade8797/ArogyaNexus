@@ -12,6 +12,7 @@ import { getCurrentUser, logoutUser } from '../services/auth/authService';
 import { getDoctorAppointments, getDoctorAppointmentCounts } from '../api/doctorAppointments';
 import '../styles/dashboard.css';
 import DoctorSidebar from '../components/doctor/DoctorSidebar';
+import AiClinicalSummaryModal from '../components/doctor/AiClinicalSummaryModal';
 
 const dashboardPaths = {
   patient: '/patient/dashboard',
@@ -44,6 +45,7 @@ export default function DashboardPage({ role }) {
   const [docUpcomingAppointments, setDocUpcomingAppointments] = useState([]);
   const [docCounts, setDocCounts] = useState({ today: 0, upcoming: 0, requests: 0 });
   const [docQueueCounts, setDocQueueCounts] = useState({ waiting: 0, consult: 0, completed: 0, noshow: 0, total: 0 });
+  const [dashboardAiAppointment, setDashboardAiAppointment] = useState(null);
 
   useEffect(() => {
     let active = true;
@@ -196,7 +198,20 @@ export default function DashboardPage({ role }) {
                   <div className="doctor-location-row"><span><CalendarDays size={18} /><b>{weekday}<small>{monthDayYear}</small></b></span><span><MapPin size={18} /><b>{effectiveUser.doctor_profile?.speciality || 'Cardiology'} Department<small>{effectiveUser.doctor_profile?.clinic_name || 'Apex Multi-Specialty Heart Center'}</small></b></span></div>
                 </div>
                 <div className="doctor-welcome-art" aria-hidden="true"><Stethoscope size={86} /><Sparkles size={28} /></div>
-                <div className="doctor-clinical-card"><h3><span className="clinical-bot"><Bot size={17} /></span> AI Clinical Assistant</h3><p>Your AI assistant for generator clinical summary and patient care overview.</p><button type="button" onClick={() => navigate('/doctor/appointments')}>View Appointments</button></div>
+                <div className="doctor-clinical-card">
+                  <h3><span className="clinical-bot"><Bot size={17} /></span> AI Clinical Assistant</h3>
+                  <p>Instant clinical briefs, vital trend alerts & PDF lab extraction powered by Gemini.</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const activeAppt = docTodayAppointments.find((a) => a.status === 'IN_CONSULTATION') || docTodayAppointments[0];
+                      if (activeAppt) setDashboardAiAppointment(activeAppt);
+                      else navigate('/doctor/appointments');
+                    }}
+                  >
+                    ✨ Generate Summary
+                  </button>
+                </div>
               </div>
 
               <section className="doctor-stat-grid" aria-label="Practice overview">
@@ -209,15 +224,40 @@ export default function DashboardPage({ role }) {
                     docTodayAppointments.map((appointment) => {
                       const timeStr = new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', hour: 'numeric', minute: '2-digit' }).format(new Date(appointment.startsAt));
                       return (
-                        <article className="doctor-appointment-row" key={appointment.id}>
+                        <article className="doctor-appointment-row" key={appointment.id} style={{ cursor: 'pointer' }} onClick={() => setDashboardAiAppointment(appointment)}>
                           <span className="appointment-time">{timeStr}</span>
                           <span className="appointment-patient">
                             <strong>{appointment.patient?.name || 'Patient'}</strong>
                             <small>{appointment.reason}</small>
                           </span>
-                          <span className={`appointment-status ${appointment.status.toLowerCase()}`}>
-                            {appointment.status.replace(/_/g, ' ')}
-                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span className={`appointment-status ${appointment.status.toLowerCase()}`}>
+                              {appointment.status.replace(/_/g, ' ')}
+                            </span>
+                            <button
+                              type="button"
+                              style={{
+                                padding: '3px 8px',
+                                borderRadius: '6px',
+                                border: '1px solid #147a77',
+                                background: '#eef8f7',
+                                color: '#0e695d',
+                                fontSize: '10px',
+                                fontWeight: '700',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '3px',
+                              }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDashboardAiAppointment(appointment);
+                              }}
+                              title="Generate AI Clinical Summary"
+                            >
+                              <Sparkles size={11} /> AI
+                            </button>
+                          </div>
                         </article>
                       );
                     })
@@ -265,6 +305,13 @@ export default function DashboardPage({ role }) {
             </aside>
           </div>
         </main>
+
+        {dashboardAiAppointment && (
+          <AiClinicalSummaryModal
+            appointment={dashboardAiAppointment}
+            onClose={() => setDashboardAiAppointment(null)}
+          />
+        )}
 
         {showLogoutDialog && (
           <div className="dashboard-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !loggingOut) setShowLogoutDialog(false); }}>
