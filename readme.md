@@ -1,4 +1,4 @@
-# 🏥 ArogyaNexus — Next-Gen Healthcare Platform & AI Clinical Assistant
+# 🏥 ArogyaNexus — Healthcare Platform & AI Clinical Assistant
 
 [![React](https://img.shields.io/badge/React-19.3-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![Express](https://img.shields.io/badge/Express-5.3-000000?logo=express&logoColor=white)](https://expressjs.com/)
@@ -7,7 +7,7 @@
 [![Google Gemini AI](https://img.shields.io/badge/Google%20Gemini-Flash%203.5%20%2F%203.8-4285F4?logo=google&logoColor=white)](https://ai.google.dev/)
 [![Vitest](https://img.shields.io/badge/Tested%20with-Vitest-6E9F18?logo=vitest&logoColor=white)](https://vitest.dev/)
 
-> **ArogyaNexus** is a full-stack, enterprise-grade healthcare management ecosystem designed to bridge patients and doctors with real-time consultation tools, automated medical record verification, and a Google Gemini-powered Clinical Decision Support engine featuring automated multi-key rotation and limit fallback.
+> ArogyaNexus: open healthcare management system for patients, doctors and hospital staff, with consent-based record access, appointment booking and AI assistance
 
 ---
 
