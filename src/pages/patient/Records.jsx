@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Download, FileImage, FileText, Heart, Plus, Search, ShieldAlert, Sparkles, Trash2, UploadCloud, X } from 'lucide-react';
 import PatientLayout from '../../components/patient/PatientLayout';
 import { Avatar, Button, Card, EmptyState, ErrorState, Skeleton, StatusChip, Modal, ConfirmDialog } from '../../components/ui';
@@ -40,6 +41,7 @@ export default function Records() {
       page: typeof value === 'function' ? value(previous.profileId === activeProfile.id ? previous.page : 1) : value,
     }));
 
+  const [searchParams] = useSearchParams();
   const [reload, setReload] = useState(0);
   const [data, setData] = useState({
     status: 'loading',
@@ -138,6 +140,12 @@ export default function Records() {
     setModal('upload');
   };
 
+  useEffect(() => {
+    if (searchParams.get('action') === 'upload') {
+      openUpload();
+    }
+  }, [searchParams]);
+
   const submitUpload = async (event) => {
     event.preventDefault();
     if (!uploadFile) {
@@ -149,10 +157,10 @@ export default function Records() {
     try {
       const uploadRes = await uploadRecord(activeProfile.id, uploadDraft, uploadFile);
       setModal('');
-      const rec = uploadRes?.record;
-      if (rec?.verificationStatus === 'AI_VERIFIED') {
+      const rec = uploadRes?.record || uploadRes;
+      if (rec?.verificationStatus === 'AI_VERIFIED' || uploadRes?.verificationStatus === 'AI_VERIFIED') {
         setNotice('Document uploaded and AI-verified successfully!');
-      } else if (rec?.verificationStatus === 'DOCTOR_REVIEW_REQUIRED') {
+      } else if (rec?.verificationStatus === 'DOCTOR_REVIEW_REQUIRED' || uploadRes?.verificationStatus === 'DOCTOR_REVIEW_REQUIRED') {
         setNotice('Document uploaded. AI flagged for doctor review — you can select an attending doctor to request review.');
       } else {
         setNotice('Health record uploaded to database.');

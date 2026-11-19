@@ -1,0 +1,152 @@
+[
+  {
+    "id": "msg-sachin-1",
+    "senderId": "22222222-2222-4222-a222-222222222222",
+    "senderName": "Dr. Ananya Sharma",
+    "senderRole": "doctor",
+    "receiverId": "d66db10a-d550-4000-ba21-ade93bddae01",
+    "text": "Hello Sachin, I reviewed your recent 12-lead ECG. The sinus rhythm is stable, and cardiac parameters are within acceptable limits.",
+    "timestamp": "2026-11-15T14:04:37.114Z",
+    "read": true
+  },
+  {
+    "id": "msg-sachin-2",
+    "senderId": "d66db10a-d550-4000-ba21-ade93bddae01",
+    "senderName": "Sachin Shinde",
+    "senderRole": "patient",
+    "receiverId": "22222222-2222-4222-a222-222222222222",
+    "text": "Good morning Dr. Sharma! Thank you for the update. My morning blood pressure was 124/80 mmHg. Should I continue the prescribed morning dosage?",
+    "timestamp": "2026-11-15T15:04:37.114Z",
+    "read": true
+  },
+  {
+    "id": "msg-sachin-3",
+    "senderId": "22222222-2222-4222-a222-222222222222",
+    "senderName": "Dr. Ananya Sharma",
+    "senderRole": "doctor",
+    "receiverId": "d66db10a-d550-4000-ba21-ade93bddae01",
+    "text": "Yes Sachin, 124/80 mmHg is optimal. Continue taking the tablet after breakfast and let me know if you experience any dizziness.",
+    "timestamp": "2026-11-15T17:04:37.114Z",
+    "read": true
+  },
+  {
+    "id": "msg-atharv-1",
+    "senderId": "33333333-3333-4333-a333-333333333333",
+    "senderName": "Atharv Kavitake",
+    "senderRole": "patient",
+    "receiverId": "22222222-2222-4222-a222-222222222222",
+    "text": "Hello Dr. Ananya, I uploaded my recent Complete Blood Count (CBC) and Lipid Profile reports to my health records.",
+    "timestamp": "2026-11-15T11:04:37.114Z",
+    "read": true
+  },
+  {
+    "id": "msg-atharv-2",
+    "senderId": "22222222-2222-4222-a222-222222222222",
+    "senderName": "Dr. Ananya Sharma",
+    "senderRole": "doctor",
+    "receiverId": "33333333-3333-4333-a333-333333333333",
+    "text": "Thank you Atharv! I checked the results. Total cholesterol is slightly elevated at 185 mg/dL, but triglycerides and hemoglobin look good. Let us maintain the low-sodium diet.",
+    "timestamp": "2026-11-15T16:04:37.114Z",
+    "read": true
+  },
+  {
+    "id": "msg-atharv-3",
+    "senderId": "33333333-3333-4333-a333-333333333333",
+    "senderName": "Atharv Kavitake",
+    "senderRole": "patient",
+    "receiverId": "22222222-2222-4222-a222-222222222222",
+    "text": "Understood doctor. Should I schedule a follow-up consultation next month?",
+    "timestamp": "2026-11-15T18:04:37.114Z",
+    "read": true
+  },
+  {
+    "id": "msg-pooja-1",
+    "senderId": "patient-dummy-2",
+    "senderName": "Pooja Gaikwad",
+    "senderRole": "patient",
+    "receiverId": "22222222-2222-4222-a222-222222222222",
+    "text": "Dr. Sharma, thank you for confirming my appointment for tomorrow at 11:30 AM.",
+    "timestamp": "2026-11-15T13:04:37.114Z",
+    "read": true
+  },
+  {
+    "id": "msg-pooja-2",
+    "senderId": "22222222-2222-4222-a222-222222222222",
+    "senderName": "Dr. Ananya Sharma",
+    "senderRole": "doctor",
+    "receiverId": "patient-dummy-2",
+    "text": "You are welcome Pooja. Please bring your previous test prescriptions with you to the clinic.",
+    "timestamp": "2026-11-15T15:04:37.114Z",
+    "read": true
+  },
+  {
+    "id": "msg-1794769535091-z7svb",
+    "senderId": "d66db10a-d550-4000-ba21-ade93bddae01",
+    "senderName": "Sachin Shinde",
+    "senderRole": "patient",
+    "receiverId": "22222222-2222-4222-a222-222222222222",
+    "text": "Hello Dr. Ananya! My morning reading is normal. Time: 12:35:35 AM",
+    "timestamp": "2026-11-15T19:05:35.091Z",
+    "read": true
+  },
+  {
+    "id": "msg-1794769535096-bs6xt",
+    "senderId": "22222222-2222-4222-a222-222222222222",
+    "senderName": "Dr. Ananya Sharma",
+    "senderRole": "doctor",
+    "receiverId": "d66db10a-d550-4000-ba21-ade93bddae01",
+    "text": "Great to hear Sachin! Please continue the same dosage. Time: 12:35:35 AM",
+    "timestamp": "2026-11-15T19:05:35.096Z",
+    "read": true
+  },
+  {
+    "id": "msg-1794771724567-71syi",
+    "senderId": "22222222-2222-4222-a222-222222222222",
+    "senderName": "Dr. Ananya S. Sharma",
+    "senderRole": "doctor",
+    "receiverId": "d66db10a-d550-4000-ba21-ade93bddae01",
+    "text": "hi",
+    "timestamp": "2026-11-15T19:42:04.567Z",
+    "read": true
+  },
+  {
+    "id": "msg-1794771915283-qoufo",
+    "senderId": "d66db10a-d550-4000-ba21-ade93bddae01",
+    "senderName": "Sachin Shinde",
+    "senderRole": "patient",
+    "receiverId": "22222222-2222-4222-a222-222222222222",
+    "text": "hi sir",
+    "timestamp": "2026-11-15T19:45:15.283Z",
+    "read": true
+  },
+  {
+    "id": "msg-1794771923384-56a8t",
+    "senderId": "22222222-2222-4222-a222-222222222222",
+    "senderName": "Dr. Ananya Sharma",
+    "senderRole": "doctor",
+    "receiverId": "d66db10a-d550-4000-ba21-ade93bddae01",
+    "text": "Please share your latest morning BP reading.",
+    "timestamp": "2026-11-15T19:45:23.384Z",
+    "read": true
+  },
+  {
+    "id": "msg-1795068603816-uwums",
+    "senderId": "22222222-2222-4222-a222-222222222222",
+    "senderName": "Dr. Ananya Sharma",
+    "senderRole": "doctor",
+    "receiverId": "d66db10a-d550-4000-ba21-ade93bddae01",
+    "text": "Please share your latest morning BP reading.",
+    "timestamp": "2026-11-19T06:10:03.816Z",
+    "read": true
+  },
+  {
+    "id": "msg-1795068668812-maw0f",
+    "senderId": "d66db10a-d550-4000-ba21-ade93bddae01",
+    "senderName": "Sachin Shinde",
+    "senderRole": "patient",
+    "receiverId": "22222222-2222-4222-a222-222222222222",
+    "text": "120",
+    "timestamp": "2026-11-19T06:11:08.812Z",
+    "read": true
+  }
+]

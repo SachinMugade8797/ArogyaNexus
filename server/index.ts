@@ -1407,7 +1407,8 @@ async function recordsProfile(req: Request, res: Response, requested?: unknown) 
   if (!profile) {
     profile = await prisma.profile.findFirst({ where: { user_id: session.user.id }, select: { id: true, name: true, user_id: true } });
   }
-  const profileId = profile?.id || 'profile-self-1';
+  const defaultProfileId = session.user.id === '33333333-3333-4333-a333-333333333333' ? 'profile-self-1' : 'profile-self-d66db10a-d550-4000-ba21-ade93bddae01';
+  const profileId = profile?.id || defaultProfileId;
   return { id: profileId, userId: session.user.id, name: profile?.name || session.user.full_name };
 }
 const mimeLabel = (mime: string) => mime === 'application/pdf' ? 'PDF' : mime === 'image/jpeg' ? 'JPG' : mime === 'image/png' ? 'PNG' : 'FILE';
@@ -1417,7 +1418,9 @@ app.get('/api/patient/records/vitals', async (req, res) => {
   if (!input.success) { res.status(400).json({ error: 'Invalid vital range.' }); return; }
   try {
     const profile = await recordsProfile(req, res); if (!profile) return;
-    const rows = await prisma.vitalReading.findMany({ where: { patient_id: profile.id, measured_at: { gte: vitalRangeStart(input.data.range) } }, orderBy: { measured_at: 'asc' } });
+    const isSachin = profile.id === 'profile-self-d66db10a-d550-4000-ba21-ade93bddae01' || profile.id === 'profile-dummy-patient-1';
+    const patientFilter = isSachin ? { in: ['profile-self-d66db10a-d550-4000-ba21-ade93bddae01', 'profile-dummy-patient-1'] } : profile.id;
+    const rows = await prisma.vitalReading.findMany({ where: { patient_id: patientFilter, measured_at: { gte: vitalRangeStart(input.data.range) } }, orderBy: { measured_at: 'asc' } });
     const types = [...VITAL_TYPES].filter((type) => type !== 'BP_DIASTOLIC'); const vitals: Record<string, any> = {};
     for (const type of types) {
       if (type === 'BP_SYSTOLIC') {
@@ -1430,7 +1433,7 @@ app.get('/api/patient/records/vitals', async (req, res) => {
     }
 
     // Comprehensive vitals history list
-    const allHistory = await prisma.vitalReading.findMany({ where: { patient_id: profile.id }, orderBy: { measured_at: 'desc' } });
+    const allHistory = await prisma.vitalReading.findMany({ where: { patient_id: patientFilter }, orderBy: { measured_at: 'desc' } });
     const historyList: any[] = [];
     const diaList = allHistory.filter((r: any) => r.type === 'BP_DIASTOLIC');
     const titleMap: Record<string, string> = {
@@ -2040,21 +2043,23 @@ interface ChatMessage {
   read: boolean;
 }
 
-const chatMessagesStore: ChatMessage[] = [
+const CHAT_STORE_FILE = path.join(process.cwd(), '.local_chat.json');
+
+const INITIAL_CHAT_MESSAGES: ChatMessage[] = [
   // Sachin Shinde & Dr. Ananya Sharma
   {
     id: 'msg-sachin-1',
     senderId: '22222222-2222-4222-a222-222222222222',
     senderName: 'Dr. Ananya Sharma',
     senderRole: 'doctor',
-    receiverId: 'patient-dummy-1',
+    receiverId: 'd66db10a-d550-4000-ba21-ade93bddae01',
     text: 'Hello Sachin, I reviewed your recent 12-lead ECG. The sinus rhythm is stable, and cardiac parameters are within acceptable limits.',
     timestamp: new Date(Date.now() - 3600000 * 5).toISOString(),
     read: true,
   },
   {
     id: 'msg-sachin-2',
-    senderId: 'patient-dummy-1',
+    senderId: 'd66db10a-d550-4000-ba21-ade93bddae01',
     senderName: 'Sachin Shinde',
     senderRole: 'patient',
     receiverId: '22222222-2222-4222-a222-222222222222',
@@ -2067,7 +2072,7 @@ const chatMessagesStore: ChatMessage[] = [
     senderId: '22222222-2222-4222-a222-222222222222',
     senderName: 'Dr. Ananya Sharma',
     senderRole: 'doctor',
-    receiverId: 'patient-dummy-1',
+    receiverId: 'd66db10a-d550-4000-ba21-ade93bddae01',
     text: 'Yes Sachin, 124/80 mmHg is optimal. Continue taking the tablet after breakfast and let me know if you experience any dizziness.',
     timestamp: new Date(Date.now() - 3600000 * 2).toISOString(),
     read: true,
@@ -2128,15 +2133,116 @@ const chatMessagesStore: ChatMessage[] = [
   },
 ];
 
-// Helper to check match between two IDs (patient user id or profile id)
+function loadChatStore(): ChatMessage[] {
+  try {
+    if (fs.existsSync(CHAT_STORE_FILE)) {
+      const data = JSON.parse(fs.readFileSync(CHAT_STORE_FILE, 'utf8'));
+      if (Array.isArray(data) && data.length > 0) return data;
+    }
+  } catch (err) {
+    console.warn('[Chat] Failed reading chat store from file, using initial seed:', err);
+  }
+  return [...INITIAL_CHAT_MESSAGES];
+}
+
+const chatMessagesStore: ChatMessage[] = loadChatStore();
+
+function saveChatStore(): void {
+  try {
+    fs.writeFileSync(CHAT_STORE_FILE, JSON.stringify(chatMessagesStore, null, 2), 'utf8');
+  } catch (err) {
+    console.error('[Chat] Failed saving chat store to file:', err);
+  }
+}
+
+// Ensure file exists on initial start
+if (!fs.existsSync(CHAT_STORE_FILE)) {
+  saveChatStore();
+}
+
+const chatEventClients = new Set<Response>();
+
+function publishChatUpdate() {
+  for (const client of chatEventClients) {
+    try {
+      client.write('event: chat-update\ndata: {}\n\n');
+    } catch {
+      chatEventClients.delete(client);
+    }
+  }
+}
+
+// Heartbeat ping interval to keep live SSE connections open indefinitely
+app.get('/api/chat/events', (req: Request, res: Response) => {
+  res.status(200);
+  res.set({
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  res.flushHeaders();
+  res.write(': connected\n\n');
+  chatEventClients.add(res);
+
+  const heartbeat = setInterval(() => {
+    try {
+      res.write(': ping\n\n');
+    } catch {
+      clearInterval(heartbeat);
+      chatEventClients.delete(res);
+    }
+  }, 15000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    chatEventClients.delete(res);
+  });
+});
+
+// Canonical ID resolution & Participant matching
+const SACHIN_IDS = new Set([
+  'd66db10a-d550-4000-ba21-ade93bddae01',
+  'profile-self-d66db10a-d550-4000-ba21-ade93bddae01',
+  'patient-dummy-1',
+  'profile-dummy-patient-1',
+  'me',
+  'demo-patient',
+]);
+
+const DOCTOR_ANANYA_IDS = new Set([
+  '22222222-2222-4222-a222-222222222222',
+  'dp-approved-1',
+  'doc-ananya-sharma',
+]);
+
+const ATHARV_IDS = new Set([
+  '33333333-3333-4333-a333-333333333333',
+  'profile-self-1',
+]);
+
+const POOJA_IDS = new Set([
+  'patient-dummy-2',
+  'profile-dummy-patient-2',
+]);
+
+function canonicalParticipantId(id: string): string {
+  if (!id) return '';
+  if (SACHIN_IDS.has(id)) return 'd66db10a-d550-4000-ba21-ade93bddae01';
+  if (DOCTOR_ANANYA_IDS.has(id)) return '22222222-2222-4222-a222-222222222222';
+  if (ATHARV_IDS.has(id)) return '33333333-3333-4333-a333-333333333333';
+  if (POOJA_IDS.has(id)) return 'patient-dummy-2';
+  return id;
+}
+
 function matchesParticipant(a: string, b: string): boolean {
   if (!a || !b) return false;
   if (a === b) return true;
-  if ((a === 'patient-dummy-1' || a === 'profile-dummy-patient-1') && (b === 'patient-dummy-1' || b === 'profile-dummy-patient-1')) return true;
-  if ((a === '33333333-3333-4333-a333-333333333333' || a === 'profile-self-1') && (b === '33333333-3333-4333-a333-333333333333' || b === 'profile-self-1')) return true;
-  if ((a === 'patient-dummy-2' || a === 'profile-dummy-patient-2') && (b === 'patient-dummy-2' || b === 'profile-dummy-patient-2')) return true;
-  if ((a === '22222222-2222-4222-a222-222222222222' || a === 'dp-approved-1') && (b === '22222222-2222-4222-a222-222222222222' || b === 'dp-approved-1')) return true;
-  return false;
+  if (SACHIN_IDS.has(a) && SACHIN_IDS.has(b)) return true;
+  if (DOCTOR_ANANYA_IDS.has(a) && DOCTOR_ANANYA_IDS.has(b)) return true;
+  if (ATHARV_IDS.has(a) && ATHARV_IDS.has(b)) return true;
+  if (POOJA_IDS.has(a) && POOJA_IDS.has(b)) return true;
+  return canonicalParticipantId(a) === canonicalParticipantId(b);
 }
 
 // 1. Get Chat Conversations list
@@ -2145,13 +2251,13 @@ app.get('/api/chat/conversations', async (req: Request, res: Response) => {
     const session = getSession(req.cookies[SESSION_COOKIE_NAME]);
     const role = (req.query.role as string) || (session?.user?.role) || 'doctor';
     const doctorUserId = '22222222-2222-4222-a222-222222222222';
-    const patientUserId = '33333333-3333-4333-a333-333333333333';
+    const patientUserId = session?.user?.id || 'd66db10a-d550-4000-ba21-ade93bddae01';
 
     if (role === 'doctor') {
       const patientsList = [
         {
-          id: 'patient-dummy-1',
-          profileId: 'profile-dummy-patient-1',
+          id: 'd66db10a-d550-4000-ba21-ade93bddae01',
+          profileId: 'profile-self-d66db10a-d550-4000-ba21-ade93bddae01',
           name: 'Sachin Shinde',
           age: 34,
           gender: 'Male',
@@ -2205,6 +2311,26 @@ app.get('/api/chat/conversations', async (req: Request, res: Response) => {
           online: false,
         },
       ];
+
+      const registeredPatients = await prisma.user.findMany({
+        where: { role: 'patient' },
+        select: { id: true, full_name: true },
+      });
+      for (const patient of registeredPatients) {
+        if (!patientsList.some((item) => matchesParticipant(item.id, patient.id) || item.name.toLowerCase() === patient.full_name.toLowerCase())) {
+          patientsList.push({
+            id: patient.id,
+            profileId: patient.id,
+            name: patient.full_name,
+            age: 0,
+            gender: '',
+            bloodGroup: '',
+            condition: 'Patient consultation',
+            photoUrl: '',
+            online: false,
+          });
+        }
+      }
 
       const conversations = patientsList.map((p) => {
         const msgs = chatMessagesStore.filter(
@@ -2306,8 +2432,8 @@ app.get('/api/chat/messages', async (req: Request, res: Response) => {
     }
 
     const session = getSession(req.cookies[SESSION_COOKIE_NAME]);
-    const role = (req.query.role as string) || (session?.user?.role) || 'doctor';
-    const currentUserId = session?.user?.id || (role === 'doctor' ? '22222222-2222-4222-a222-222222222222' : '33333333-3333-4333-a333-333333333333');
+    const isDoctorCalling = session?.user?.role === 'doctor' || req.query.role === 'doctor';
+    const currentUserId = session?.user?.id || (isDoctorCalling ? '22222222-2222-4222-a222-222222222222' : 'd66db10a-d550-4000-ba21-ade93bddae01');
 
     // Filter messages for this pair
     const messages = chatMessagesStore.filter(
@@ -2317,11 +2443,17 @@ app.get('/api/chat/messages', async (req: Request, res: Response) => {
     );
 
     // Mark as read
+    let updated = false;
     messages.forEach((m) => {
-      if (matchesParticipant(m.senderId, participantId)) {
+      if (matchesParticipant(m.senderId, participantId) && !m.read) {
         m.read = true;
+        updated = true;
       }
     });
+
+    if (updated) {
+      saveChatStore();
+    }
 
     res.json({ success: true, messages });
   } catch (err: any) {
@@ -2333,16 +2465,17 @@ app.get('/api/chat/messages', async (req: Request, res: Response) => {
 // 3. Post / Send a Message
 app.post('/api/chat/messages', async (req: Request, res: Response) => {
   try {
-    const { receiverId, text, senderRole } = req.body || {};
+    const { receiverId, text, senderRole, senderId: bodySenderId, senderName: bodySenderName } = req.body || {};
     if (!receiverId || !text || !String(text).trim()) {
       res.status(400).json({ success: false, error: 'Receiver ID and non-empty message text are required.' });
       return;
     }
 
     const session = getSession(req.cookies[SESSION_COOKIE_NAME]);
-    const role: 'doctor' | 'patient' = senderRole || (session?.user?.role as 'doctor' | 'patient') || 'doctor';
-    const senderId = session?.user?.id || (role === 'doctor' ? '22222222-2222-4222-a222-222222222222' : '33333333-3333-4333-a333-333333333333');
-    const senderName = session?.user?.full_name || (role === 'doctor' ? 'Dr. Ananya Sharma' : 'Patient');
+    const isDoctor = session?.user?.role === 'doctor' || senderRole === 'doctor' || matchesParticipant(receiverId, 'd66db10a-d550-4000-ba21-ade93bddae01');
+    const role: 'doctor' | 'patient' = senderRole || (session?.user?.role as 'doctor' | 'patient') || (isDoctor ? 'doctor' : 'patient');
+    const senderId = session?.user?.id || bodySenderId || (role === 'doctor' ? '22222222-2222-4222-a222-222222222222' : 'd66db10a-d550-4000-ba21-ade93bddae01');
+    const senderName = session?.user?.full_name || bodySenderName || (role === 'doctor' ? 'Dr. Ananya Sharma' : 'Sachin Shinde');
 
     const newMessage: ChatMessage = {
       id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -2356,50 +2489,8 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
     };
 
     chatMessagesStore.push(newMessage);
-
-    // If patient sent a message to doctor, simulate doctor clinical response after 1s
-    if (role === 'patient') {
-      setTimeout(() => {
-        const replyText =
-          newMessage.text.toLowerCase().includes('bp') || newMessage.text.toLowerCase().includes('pressure')
-            ? 'Thank you for sharing your blood pressure reading. Please keep a daily log and stay well-hydrated.'
-            : newMessage.text.toLowerCase().includes('food') || newMessage.text.toLowerCase().includes('dose') || newMessage.text.toLowerCase().includes('medicine')
-            ? 'Yes, continue taking the prescribed medication right after food. Let me know if any discomfort persists.'
-            : 'Thank you for the message. I have updated your consultation notes and will review them shortly.';
-
-        chatMessagesStore.push({
-          id: `msg-reply-${Date.now()}`,
-          senderId: newMessage.receiverId,
-          senderName: 'Dr. Ananya Sharma',
-          senderRole: 'doctor',
-          receiverId: newMessage.senderId,
-          text: replyText,
-          timestamp: new Date().toISOString(),
-          read: false,
-        });
-      }, 1000);
-    } else if (role === 'doctor') {
-      // If doctor sent a message, simulate patient acknowledgement after 1.2s
-      setTimeout(() => {
-        const ackText =
-          newMessage.text.toLowerCase().includes('bp') || newMessage.text.toLowerCase().includes('blood pressure')
-            ? 'Understood Dr. Sharma. I will monitor my BP and log the readings here daily.'
-            : newMessage.text.toLowerCase().includes('report') || newMessage.text.toLowerCase().includes('test')
-            ? 'Thank you doctor! I will follow your instructions and stay in touch.'
-            : 'Thank you so much Dr. Sharma, noted!';
-
-        chatMessagesStore.push({
-          id: `msg-ack-${Date.now()}`,
-          senderId: newMessage.receiverId,
-          senderName: 'Sachin Shinde',
-          senderRole: 'patient',
-          receiverId: newMessage.senderId,
-          text: ackText,
-          timestamp: new Date().toISOString(),
-          read: false,
-        });
-      }, 1200);
-    }
+    saveChatStore();
+    publishChatUpdate();
 
     res.status(201).json({ success: true, message: newMessage });
   } catch (err: any) {
@@ -2407,6 +2498,7 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
     res.status(500).json({ success: false, error: 'Could not deliver message.' });
   }
 });
+
 
 export { app };
 

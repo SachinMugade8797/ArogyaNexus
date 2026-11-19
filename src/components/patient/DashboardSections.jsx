@@ -80,7 +80,7 @@ export function QuickActions({ onRetry, state }) {
   const actions = [
     { icon: CalendarDays, label: 'Book Appointment', to: '/patient/doctors' },
     { icon: MessageCircle, label: 'Doctor Chat', to: '/patient/messages' },
-    { icon: Upload, label: 'Upload Record', to: '/patient/records' },
+    { icon: Upload, label: 'Upload Record', to: '/patient/records?action=upload' },
   ];
   return (
     <Card className="quick-actions" title="Quick actions" state={state} onRetry={onRetry}>
@@ -428,9 +428,28 @@ export function RecentDocuments({ documents = [], onRetry, state }) {
       state={state || (documents === undefined ? 'loading' : undefined)}
       onRetry={onRetry}
       action={
-        <Link to="/patient/records" style={{ fontSize: '11px', color: '#167a70', textDecoration: 'none', fontWeight: 600 }}>
-          Manage Records →
-        </Link>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Link
+            to="/patient/records?action=upload"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              fontSize: '11px',
+              color: '#167a70',
+              background: '#e6f4f2',
+              padding: '3px 8px',
+              borderRadius: '6px',
+              textDecoration: 'none',
+              fontWeight: 600,
+            }}
+          >
+            <Upload size={12} /> Upload Record
+          </Link>
+          <Link to="/patient/records" style={{ fontSize: '11px', color: '#167a70', textDecoration: 'none', fontWeight: 600 }}>
+            Manage Records →
+          </Link>
+        </div>
       }
     >
       {hasDocs ? (

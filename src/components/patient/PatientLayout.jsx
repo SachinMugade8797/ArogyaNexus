@@ -67,7 +67,7 @@ export default function PatientLayout({ children, profile }) {
       <main className="patient-workspace">
         <header className="patient-topbar">
           <div className="patient-greeting">
-            <h1>Good afternoon, <strong>{profile?.name || 'Rahul K.'}</strong></h1>
+            <h1>Good afternoon, <strong>{profile?.name || 'Sachin Shinde'}</strong></h1>
           </div>
           <label className="patient-search">
             <Search size={18} />

@@ -11,7 +11,7 @@ async function main() {
   let user = await prisma.user.findUnique({ where: { email } });
   if (!user) {
     const password = crypto.randomBytes(12).toString('base64url');
-    user = await prisma.user.create({ data: { email, full_name: 'Rahul K.', role: 'patient', password_hash: await bcrypt.hash(password, 10) } });
+    user = await prisma.user.create({ data: { email, full_name: 'Sachin Shinde', role: 'patient', password_hash: await bcrypt.hash(password, 10) } });
     console.log(`Created ${email} with password: ${password}`);
   }
   const profiles: Record<string, any> = {};

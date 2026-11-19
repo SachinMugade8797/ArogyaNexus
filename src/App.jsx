@@ -12,6 +12,7 @@ import Toast from './components/auth/Toast';
 import AppErrorBoundary from './components/ui/AppErrorBoundary';
 import NotFound from './pages/NotFound';
 import { ActiveProfileProvider } from './contexts/ActiveProfileContext';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 
 const PatientDashboard = lazy(() => import('./pages/patient/Dashboard'));
 const DoctorDirectory = lazy(() => import('./pages/patient/DoctorDirectory'));
@@ -56,49 +57,51 @@ export default function App() {
   }, []);
 
   return (
-    <BrowserRouter>
-      <AppErrorBoundary>
-        {/* Toast Notification Container */}
-        <Toast toasts={toasts} onRemove={removeToast} />
+    <AuthProvider>
+      <BrowserRouter>
+        <AppErrorBoundary>
+          {/* Toast Notification Container */}
+          <Toast toasts={toasts} onRemove={removeToast} />
 
-        <Suspense fallback={<div className="patient-route-loading" role="status">Loading page…</div>}>
-          <Routes>
-            <Route path="/" element={<PublicHomePage />} />
-            <Route path="/doctors" element={<DoctorDiscoveryPage />} />
-            <Route path="/doctors/:doctorId" element={<PublicDoctorProfilePage />} />
-            <Route path="/login" element={<LoginPage onToast={addToast} />} />
-            <Route path="/register" element={<RegisterSelectPage onToast={addToast} />} />
-            <Route path="/register/patient" element={<PatientRegisterPage onToast={addToast} />} />
-            <Route path="/register/doctor" element={<DoctorRegisterPage onToast={addToast} />} />
-            <Route path="/forgot-password" element={<ForgotPasswordPage onToast={addToast} />} />
-            <Route path="/reset-password" element={<ResetPasswordPage onToast={addToast} />} />
-            <Route path="/patient/*" element={<PatientProtectedRoute />} />
-            <Route path="/doctor/dashboard" element={<DashboardPage role="doctor" />} />
-            <Route path="/doctor/appointments" element={<DoctorAppointments />} />
-            <Route path="/doctor/consult/:appointmentId" element={<DoctorConsultationPlaceholder />} />
-            <Route path="/doctor/records/:patientId" element={<DoctorRecordsPlaceholder />} />
-            <Route path="/doctor/records" element={<DoctorRecordsPlaceholder />} />
-            <Route path="/doctor/messages" element={<DoctorMessages />} />
-            <Route path="/doctor/chat" element={<DoctorMessages />} />
-            <Route path="/doctor/settings" element={<DoctorSettings onToast={addToast} />} />
-            <Route path="/doctor/:section" element={<DoctorAppointments comingSoon />} />
-            <Route path="/admin/dashboard" element={<DashboardPage role="admin" />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </Suspense>
-      </AppErrorBoundary>
-    </BrowserRouter>
+          <Suspense fallback={<div className="patient-route-loading" role="status">Loading page…</div>}>
+            <Routes>
+              <Route path="/" element={<PublicHomePage />} />
+              <Route path="/doctors" element={<DoctorDiscoveryPage />} />
+              <Route path="/doctors/:doctorId" element={<PublicDoctorProfilePage />} />
+              <Route path="/login" element={<LoginPage onToast={addToast} />} />
+              <Route path="/register" element={<RegisterSelectPage onToast={addToast} />} />
+              <Route path="/register/patient" element={<PatientRegisterPage onToast={addToast} />} />
+              <Route path="/register/doctor" element={<DoctorRegisterPage onToast={addToast} />} />
+              <Route path="/forgot-password" element={<ForgotPasswordPage onToast={addToast} />} />
+              <Route path="/reset-password" element={<ResetPasswordPage onToast={addToast} />} />
+              <Route path="/patient/*" element={<PatientProtectedRoute />} />
+              <Route path="/doctor/dashboard" element={<DashboardPage role="doctor" />} />
+              <Route path="/doctor/appointments" element={<DoctorAppointments />} />
+              <Route path="/doctor/consult/:appointmentId" element={<DoctorConsultationPlaceholder />} />
+              <Route path="/doctor/records/:patientId" element={<DoctorRecordsPlaceholder />} />
+              <Route path="/doctor/records" element={<DoctorRecordsPlaceholder />} />
+              <Route path="/doctor/messages" element={<DoctorMessages />} />
+              <Route path="/doctor/chat" element={<DoctorMessages />} />
+              <Route path="/doctor/settings" element={<DoctorSettings onToast={addToast} />} />
+              <Route path="/doctor/:section" element={<DoctorAppointments comingSoon />} />
+              <Route path="/admin/dashboard" element={<DashboardPage role="admin" />} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </Suspense>
+        </AppErrorBoundary>
+      </BrowserRouter>
+    </AuthProvider>
   );
 }
 
 function PatientProtectedRoute() {
-  const fakeUser = { id: 'demo-patient', full_name: 'Rahul K.', role: 'patient' };
-  if (fakeUser.role !== 'patient') return <Navigate to="/login" replace />;
+  const { user } = useAuth();
+  const effectiveUser = user || { id: 'd66db10a-d550-4000-ba21-ade93bddae01', full_name: 'Sachin Shinde', role: 'patient' };
   return (
     <ActiveProfileProvider>
       <Routes>
         <Route index element={<Navigate to="dashboard" replace />} />
-        <Route path="dashboard" element={<PatientDashboard user={fakeUser} />} />
+        <Route path="dashboard" element={<PatientDashboard user={effectiveUser} />} />
         <Route path="doctors" element={<DoctorDirectory />} />
         <Route path="doctors/:doctorId" element={<DoctorProfile />} />
         <Route path="book-appointment/:doctorId" element={<BookAppointment />} />

@@ -263,7 +263,7 @@ function loadLocalDB(): LocalDB {
         dob: '1998-05-15T00:00:00.000Z',
         gender: 'Male',
         blood_group: 'O+',
-        emergency_name: 'Sunita Kavitake',
+        emergency_name: 'Sunita Shinde',
         emergency_phone: '+1 (555) 234-5678',
         emergency_relation: 'MOTHER',
       },
@@ -827,11 +827,13 @@ const fallbackVitalReading = {
     if (args?.where) {
       if (args.where.patient_id) {
         const pid = args.where.patient_id;
+        const targetIds = (pid && typeof pid === 'object' && Array.isArray(pid.in)) ? pid.in : [pid];
+        const isSachin = targetIds.some((t: string) => t === 'profile-self-d66db10a-d550-4000-ba21-ade93bddae01' || t === 'd66db10a-d550-4000-ba21-ade93bddae01' || t === 'patient-dummy-1');
+        const isAtharv = targetIds.some((t: string) => t === 'profile-self-1' || t === '33333333-3333-4333-a333-333333333333');
         res = res.filter((v: any) =>
-          v.patient_id === pid ||
-          (pid === 'profile-self-1' && (v.patient_id === 'me' || v.patient_id === '33333333-3333-4333-a333-333333333333')) ||
-          (pid === 'me' && (v.patient_id === 'profile-self-1' || v.patient_id === '33333333-3333-4333-a333-333333333333')) ||
-          (pid === '33333333-3333-4333-a333-333333333333' && (v.patient_id === 'me' || v.patient_id === 'profile-self-1'))
+          targetIds.includes(v.patient_id) ||
+          (isSachin && (v.patient_id === 'profile-self-d66db10a-d550-4000-ba21-ade93bddae01' || v.patient_id === 'd66db10a-d550-4000-ba21-ade93bddae01' || v.patient_id === 'patient-dummy-1')) ||
+          (isAtharv && (v.patient_id === 'profile-self-1' || v.patient_id === 'me' || v.patient_id === '33333333-3333-4333-a333-333333333333'))
         );
       }
       if (args.where.type) res = res.filter((v: any) => v.type === args.where.type);
@@ -945,11 +947,13 @@ const fallbackHealthRecord = {
       }
       if (args.where.patient_id) {
         const pid = args.where.patient_id;
+        const targetIds = (pid && typeof pid === 'object' && Array.isArray(pid.in)) ? pid.in : [pid];
+        const isSachin = targetIds.some((t: string) => t === 'profile-self-d66db10a-d550-4000-ba21-ade93bddae01' || t === 'd66db10a-d550-4000-ba21-ade93bddae01' || t === 'patient-dummy-1');
+        const isAtharv = targetIds.some((t: string) => t === 'profile-self-1' || t === '33333333-3333-4333-a333-333333333333');
         list = list.filter((r: any) =>
-          r.patient_id === pid ||
-          (pid === 'profile-self-1' && (r.patient_id === 'me' || r.patient_id === '33333333-3333-4333-a333-333333333333')) ||
-          (pid === 'me' && (r.patient_id === 'profile-self-1' || r.patient_id === '33333333-3333-4333-a333-333333333333')) ||
-          (pid === '33333333-3333-4333-a333-333333333333' && (r.patient_id === 'me' || r.patient_id === 'profile-self-1'))
+          targetIds.includes(r.patient_id) ||
+          (isSachin && (r.patient_id === 'profile-self-d66db10a-d550-4000-ba21-ade93bddae01' || r.patient_id === 'd66db10a-d550-4000-ba21-ade93bddae01' || r.patient_id === 'patient-dummy-1')) ||
+          (isAtharv && (r.patient_id === 'profile-self-1' || r.patient_id === 'me' || r.patient_id === '33333333-3333-4333-a333-333333333333'))
         );
       }
       if (args.where.deleted_at === null) list = list.filter((r: any) => !r.deleted_at);

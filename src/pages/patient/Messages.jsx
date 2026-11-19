@@ -15,7 +15,8 @@ import {
 } from 'lucide-react';
 import PatientLayout from '../../components/patient/PatientLayout';
 import { useActiveProfile } from '../../contexts/activeProfile';
-import { getChatConversations, getChatMessages, sendChatMessage } from '../../api/chat';
+import { useAuth } from '../../contexts/AuthContext';
+import { getChatConversations, getChatMessages, sendChatMessage, subscribeToChatUpdates } from '../../api/chat';
 import '../../styles/consultation-chat.css';
 
 const PATIENT_QUICK_QUESTIONS = [
@@ -28,6 +29,7 @@ const PATIENT_QUICK_QUESTIONS = [
 
 export default function PatientMessages() {
   const { activeProfile } = useActiveProfile();
+  const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
@@ -42,6 +44,9 @@ export default function PatientMessages() {
   const [loading, setLoading] = useState(true);
 
   const messagesEndRef = useRef(null);
+
+  const effectivePatientName = user?.full_name || activeProfile?.name || 'Sachin Shinde';
+  const effectivePatientId = user?.id || 'd66db10a-d550-4000-ba21-ade93bddae01';
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -60,7 +65,7 @@ export default function PatientMessages() {
             c.participant.profileId === requestedDoctorId ||
             c.participant.id === '22222222-2222-4222-a222-222222222222'
         );
-        if (found) {
+        if (found && activeConv?.participant?.id !== found.participant.id) {
           setActiveConv(found);
         } else if (!activeConv && list.length > 0) {
           setActiveConv(list[0]);
@@ -92,9 +97,12 @@ export default function PatientMessages() {
 
   useEffect(() => {
     loadActiveMessages();
-    const interval = setInterval(loadActiveMessages, 3000);
-    return () => clearInterval(interval);
-  }, [loadActiveMessages]);
+    const unsubscribe = subscribeToChatUpdates(() => {
+      loadActiveMessages();
+      loadConversations();
+    });
+    return unsubscribe;
+  }, [loadActiveMessages, loadConversations]);
 
   useEffect(() => {
     scrollToBottom();
@@ -111,8 +119,8 @@ export default function PatientMessages() {
 
     const optimisticMsg = {
       id: `temp-${Date.now()}`,
-      senderId: activeProfile.id,
-      senderName: activeProfile.name || 'Atharv Kavitake',
+      senderId: effectivePatientId,
+      senderName: effectivePatientName,
       senderRole: 'patient',
       receiverId: activeConv.participant.id,
       text,
@@ -126,6 +134,8 @@ export default function PatientMessages() {
         receiverId: activeConv.participant.id,
         text,
         senderRole: 'patient',
+        senderId: effectivePatientId,
+        senderName: effectivePatientName,
       });
       await loadActiveMessages();
       await loadConversations();

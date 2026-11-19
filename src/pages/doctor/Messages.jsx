@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import DoctorSidebar from '../../components/doctor/DoctorSidebar';
 import { getCurrentUser, logoutUser } from '../../services/auth/authService';
-import { getChatConversations, getChatMessages, sendChatMessage } from '../../api/chat';
+import { getChatConversations, getChatMessages, sendChatMessage, subscribeToChatUpdates } from '../../api/chat';
 import '../../styles/dashboard.css';
 import '../../styles/consultation-chat.css';
 
@@ -85,7 +85,7 @@ export default function DoctorMessages() {
             c.participant.id === requestedPatientId ||
             c.participant.profileId === requestedPatientId
         );
-        if (found) {
+        if (found && activeConv?.participant?.id !== found.participant.id) {
           setActiveConv(found);
         } else if (!activeConv) {
           // If requested patient not in list yet, create active entry
@@ -136,9 +136,12 @@ export default function DoctorMessages() {
 
   useEffect(() => {
     loadActiveMessages();
-    const interval = setInterval(loadActiveMessages, 3000);
-    return () => clearInterval(interval);
-  }, [loadActiveMessages]);
+    const unsubscribe = subscribeToChatUpdates(() => {
+      loadActiveMessages();
+      loadConversations();
+    });
+    return unsubscribe;
+  }, [loadActiveMessages, loadConversations]);
 
   useEffect(() => {
     scrollToBottom();
@@ -171,6 +174,8 @@ export default function DoctorMessages() {
         receiverId: activeConv.participant.id,
         text,
         senderRole: 'doctor',
+        senderId: effectiveUser.id,
+        senderName: effectiveUser.full_name,
       });
       await loadActiveMessages();
       await loadConversations();
