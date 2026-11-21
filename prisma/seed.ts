@@ -94,7 +94,7 @@ async function main() {
       gender: 'Male',
       blood_group: 'O+',
       phone: patient.phone,
-      emergency_name: 'Sunita Kavitake',
+      emergency_name: 'Sunita Shinde',
       emergency_phone: '+1 (555) 234-5678',
       emergency_relation: 'MOTHER',
       allergies_confirmed: true,
@@ -115,7 +115,7 @@ async function main() {
     data: {
       id: 'profile-mother-1',
       user_id: patient.id,
-      name: 'Sunita Kavitake',
+      name: 'Sunita Shinde',
       relation: 'MOTHER',
       seed_key: 'seed:profile-MOTHER',
       allergies: [],

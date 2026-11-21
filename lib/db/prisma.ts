@@ -43,7 +43,7 @@ export async function isPostgresRunning(): Promise<boolean> {
       lastCheckTime = Date.now();
       try {
         socket.destroy();
-      } catch {}
+      } catch { }
       resolve(result);
     };
 
@@ -270,7 +270,7 @@ function loadLocalDB(): LocalDB {
       {
         id: 'profile-mother-1',
         user_id: '33333333-3333-4333-a333-333333333333',
-        name: 'Sunita Kavitake',
+        name: 'Sunita Shinde',
         relation: 'MOTHER',
         seed_key: 'seed:profile-MOTHER',
         allergies: [],
@@ -341,8 +341,8 @@ function logFallbackNotice() {
     warnedFallback = true;
     console.warn(
       '\n[ArogyaNexus DB Notice]: PostgreSQL is unavailable or incompatible with the current Prisma schema.\n' +
-        'Using local persistent storage (.local_db.json).\n' +
-        'PostgreSQL will be retried automatically after a short delay.\n'
+      'Using local persistent storage (.local_db.json).\n' +
+      'PostgreSQL will be retried automatically after a short delay.\n'
     );
   }
 }
@@ -692,16 +692,16 @@ const fallbackAppointment = {
         const docUser = docProfile ? (db.users || []).find((u: any) => u.id === docProfile.user_id) : null;
         const doctor = docProfile
           ? {
-              ...docProfile,
-              user: docUser ? { full_name: docUser.full_name, email: docUser.email } : { full_name: 'Doctor' },
-            }
+            ...docProfile,
+            user: docUser ? { full_name: docUser.full_name, email: docUser.email } : { full_name: 'Doctor' },
+          }
           : {
-              id: item.doctor_profile_id,
-              speciality: 'General Medicine',
-              clinic_name: 'Healthcare Clinic',
-              clinic_address: 'Maharashtra, India',
-              user: { full_name: 'Doctor' },
-            };
+            id: item.doctor_profile_id,
+            speciality: 'General Medicine',
+            clinic_name: 'Healthcare Clinic',
+            clinic_address: 'Maharashtra, India',
+            user: { full_name: 'Doctor' },
+          };
         return { ...item, doctor, visit_record: item.visit_record || null };
       });
     }
