@@ -163,9 +163,9 @@ async function seedClinicalData() {
       ],
     },
     '757e692b-bf16-44a1-a833-8c2c2416c29e.pdf': {
-      title: 'Hypertension Treatment & Prescription - Sunita Kavitake',
+      title: 'Hypertension Treatment & Prescription - Sunita Shinde',
       lines: [
-        'Patient Name: Sunita Kavitake | Age: 54 | Gender: Female | Date: 2026-10-15',
+        'Patient Name: Sunita Shinde | Age: 54 | Gender: Female | Date: 2026-10-15',
         'Provider: Dr. Ananya Sharma Clinic, Pune',
         '--------------------------------------------------------------------------------',
         '1. Tab. Amlodipine 5 mg - 1 tablet once daily morning.',
@@ -251,7 +251,7 @@ async function seedClinicalData() {
       dob: '1994-05-15T00:00:00.000Z',
       gender: 'Male',
       blood_group: 'O+',
-      emergency_name: 'Sunita Kavitake',
+      emergency_name: 'Sunita Shinde',
       emergency_phone: '+91 98220 12345',
       emergency_relation: 'MOTHER',
       notes: 'Stage 2 Essential Hypertension and Mixed Dyslipidemia. Report of exertional chest heaviness and palpitations.',
@@ -266,7 +266,7 @@ async function seedClinicalData() {
       dob: '1994-05-15T00:00:00.000Z',
       gender: 'Male',
       blood_group: 'O+',
-      emergency_name: 'Sunita Kavitake',
+      emergency_name: 'Sunita Shinde',
       emergency_phone: '+91 98220 12345',
       emergency_relation: 'MOTHER',
       notes: 'Stage 2 Essential Hypertension and Mixed Dyslipidemia. Report of exertional chest heaviness and palpitations.',
@@ -278,7 +278,7 @@ async function seedClinicalData() {
   let motherProf = db.profiles.find((p: any) => p.id === 'profile-mother-1');
   if (motherProf) {
     Object.assign(motherProf, {
-      name: 'Sunita Kavitake',
+      name: 'Sunita Shinde',
       relation: 'MOTHER',
       allergies: ['Aspirin', 'Ibuprofen'],
       dob: '1970-08-20T00:00:00.000Z',
@@ -293,7 +293,7 @@ async function seedClinicalData() {
     motherProf = {
       id: 'profile-mother-1',
       user_id: patientUserId,
-      name: 'Sunita Kavitake',
+      name: 'Sunita Shinde',
       relation: 'MOTHER',
       allergies: ['Aspirin', 'Ibuprofen'],
       dob: '1970-08-20T00:00:00.000Z',
@@ -514,7 +514,7 @@ async function seedClinicalData() {
       id: 'rec-sunita-rx-1',
       patient_id: 'profile-mother-1',
       category: 'PRESCRIPTION',
-      title: 'Hypertension Treatment & Prescription - Sunita Kavitake',
+      title: 'Hypertension Treatment & Prescription - Sunita Shinde',
       issuer: 'Dr. Ananya Sharma Clinic',
       record_date: new Date(now - 15 * 86400000).toISOString(),
       file_key: '757e692b-bf16-44a1-a833-8c2c2416c29e.pdf',

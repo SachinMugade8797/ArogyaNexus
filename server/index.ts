@@ -434,17 +434,17 @@ app.get('/api/patient/appointments', async (req, res) => {
     const where: any = {
       OR: isSelf
         ? [
-            { patient_id: userId },
-            { profile_id: 'me' },
-            { profile_id: 'profile-self-1' },
-            { profile_id: profileId },
-            { profile_id: null },
-          ]
+          { patient_id: userId },
+          { profile_id: 'me' },
+          { profile_id: 'profile-self-1' },
+          { profile_id: profileId },
+          { profile_id: null },
+        ]
         : [
-            { profile_id: profileId },
-            { profile_id: requestedProfileId },
-            { patient_id: userId, profile_id: profileId },
-          ],
+          { profile_id: profileId },
+          { profile_id: requestedProfileId },
+          { patient_id: userId, profile_id: profileId },
+        ],
     };
     if (parsed.data.tab === 'upcoming') { where.appointment_at = { gte: now }; where.status = { in: ['pending', 'confirmed', 'PENDING', 'CONFIRMED'] }; }
     if (parsed.data.tab === 'past') where.OR = [{ status: { in: ['completed', 'COMPLETED'] } }, { appointment_at: { lt: now }, status: { notIn: ['cancelled', 'CANCELLED'] } }];
@@ -463,17 +463,17 @@ app.get('/api/patient/appointments/calendar', async (req, res) => {
     const where: any = {
       OR: isSelf
         ? [
-            { patient_id: userId },
-            { profile_id: 'me' },
-            { profile_id: 'profile-self-1' },
-            { profile_id: profileId },
-            { profile_id: null },
-          ]
+          { patient_id: userId },
+          { profile_id: 'me' },
+          { profile_id: 'profile-self-1' },
+          { profile_id: profileId },
+          { profile_id: null },
+        ]
         : [
-            { profile_id: profileId },
-            { profile_id: requestedProfileId },
-            { patient_id: userId, profile_id: profileId },
-          ],
+          { profile_id: profileId },
+          { profile_id: requestedProfileId },
+          { patient_id: userId, profile_id: profileId },
+        ],
       appointment_at: { gte: new Date(year, month - 1, 1), lt: new Date(year, month, 1) }
     };
     const rows = await prisma.appointment.findMany({
@@ -501,17 +501,17 @@ app.get('/api/patient/appointments/past-summary', async (req, res) => {
     const where: any = {
       OR: isSelf
         ? [
-            { patient_id: userId },
-            { profile_id: 'me' },
-            { profile_id: 'profile-self-1' },
-            { profile_id: profileId },
-            { profile_id: null },
-          ]
+          { patient_id: userId },
+          { profile_id: 'me' },
+          { profile_id: 'profile-self-1' },
+          { profile_id: profileId },
+          { profile_id: null },
+        ]
         : [
-            { profile_id: profileId },
-            { profile_id: requestedProfileId },
-            { patient_id: userId, profile_id: profileId },
-          ],
+          { profile_id: profileId },
+          { profile_id: requestedProfileId },
+          { patient_id: userId, profile_id: profileId },
+        ],
       status: { in: ['completed', 'COMPLETED'] }
     };
     const rows = await prisma.appointment.findMany({
@@ -585,12 +585,12 @@ app.get('/api/doctor/appointments', async (req: Request, res: Response) => {
         statusRaw === 'pending'
           ? 'REQUESTED'
           : statusRaw === 'confirmed'
-          ? 'CONFIRMED'
-          : statusRaw === 'cancelled'
-          ? 'CANCELLED'
-          : statusRaw === 'completed'
-          ? 'COMPLETED'
-          : statusRaw.toUpperCase();
+            ? 'CONFIRMED'
+            : statusRaw === 'cancelled'
+              ? 'CANCELLED'
+              : statusRaw === 'completed'
+                ? 'COMPLETED'
+                : statusRaw.toUpperCase();
 
       const start = new Date(item.appointment_at || Date.now());
       const end = item.ends_at ? new Date(item.ends_at) : new Date(start.getTime() + 30 * 60000);
@@ -1151,7 +1151,7 @@ app.get(['/api/doctor/patients/:patientId/records', '/api/doctor/patient-records
       allergies: Array.isArray(profile.allergies) && profile.allergies.length > 0 ? profile.allergies : ['Penicillin'],
       phone: profile.phone || patientUser.phone || '+91 98220 12345',
       emergencyContact: {
-        name: profile.emergency_name || 'Sunita Kavitake',
+        name: profile.emergency_name || 'Sunita Shinde',
         phone: profile.emergency_phone || '+91 98220 12345',
         relation: profile.emergency_relation || 'FAMILY',
       },
@@ -1184,7 +1184,7 @@ app.get(['/api/doctor/patients/:patientId/records', '/api/doctor/patient-records
           consent_id: appointmentId ? `consent-${appointmentId}` : 'consent-direct',
         },
       });
-    } catch {}
+    } catch { }
 
     res.json({
       success: true,
